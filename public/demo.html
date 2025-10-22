@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YourCRM Demo - Form Tracking Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+    }
+    
+    .description {
+      color: #666;
+      margin-bottom: 30px;
+      padding: 15px;
+      background: #e8f4f8;
+      border-left: 4px solid #0066cc;
+    }
+    
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    
+    .form-group {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    label {
+      font-weight: bold;
+      margin-bottom: 5px;
+      color: #333;
+    }
+    
+    input, textarea {
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: #0066cc;
+    }
+    
+    button {
+      background: #0066cc;
+      color: white;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    
+    button:hover {
+      background: #0052a3;
+    }
+    
+    .info {
+      margin-top: 30px;
+      padding: 15px;
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      font-size: 14px;
+    }
+    
+    .tracked-form {
+      border: 2px solid #28a745;
+    }
+    
+    code {
+      background: #f4f4f4;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+    }
+  </style>
+  
+  <!-- YourCRM Tracking Script -->
+  <script src="http://localhost:5000/script/abc-123.js" async defer></script>
+</head>
+<body>
+  <div class="container">
+    <h1>🎯 YourCRM Form Tracking Demo</h1>
+    
+    <div class="description">
+      <strong>What's being tracked:</strong>
+      <ul>
+        <li>✅ Page views (automatic)</li>
+        <li>✅ Form submissions (automatic)</li>
+        <li>✅ Chat widget (visible in bottom-right)</li>
+        <li>🔒 Sensitive fields are automatically redacted (e.g., password)</li>
+      </ul>
+    </div>
+    
+    <h2>Contact Form</h2>
+    <form id="contact-form" class="tracked-form">
+      <div class="form-group">
+        <label for="name">Full Name *</label>
+        <input type="text" id="name" name="name" required placeholder="John Doe">
+      </div>
+      
+      <div class="form-group">
+        <label for="email">Email Address *</label>
+        <input type="email" id="email" name="email" required placeholder="john@example.com">
+      </div>
+      
+      <div class="form-group">
+        <label for="phone">Phone Number</label>
+        <input type="tel" id="phone" name="phone" placeholder="+1-555-0123">
+      </div>
+      
+      <div class="form-group">
+        <label for="company">Company</label>
+        <input type="text" id="company" name="company" placeholder="Acme Inc.">
+      </div>
+      
+      <div class="form-group">
+        <label for="password">Password (Will be redacted) *</label>
+        <input type="password" id="password" name="password" required placeholder="Enter password">
+      </div>
+      
+      <div class="form-group">
+        <label for="message">Message *</label>
+        <textarea id="message" name="message" rows="4" required placeholder="Tell us about your needs..."></textarea>
+      </div>
+      
+      <div class="form-group">
+        <label>
+          <input type="checkbox" name="newsletter" value="yes">
+          Subscribe to newsletter
+        </label>
+      </div>
+      
+      <button type="submit">Submit Form</button>
+    </form>
+    
+    <div class="info">
+      <strong>📊 Open your browser's developer console to see tracking in action!</strong>
+      <br><br>
+      When you submit this form:
+      <ol>
+        <li>The form data will be captured automatically</li>
+        <li>The <code>password</code> field will be redacted to <code>[REDACTED]</code></li>
+        <li>A POST request will be sent to <code>/v1/track</code></li>
+        <li>You'll see console logs from the YourCRM tracking script</li>
+      </ol>
+      <br>
+      <strong>💡 Tip:</strong> Check your terminal where the NestJS server is running to see the backend logs!
+    </div>
+    
+    <h2>Newsletter Form (Also Tracked)</h2>
+    <form id="newsletter-form">
+      <div class="form-group">
+        <label for="newsletter-email">Email Address</label>
+        <input type="email" id="newsletter-email" name="email" required placeholder="your@email.com">
+      </div>
+      
+      <button type="submit">Subscribe</button>
+    </form>
+  </div>
+  
+  <script>
+    // Prevent actual form submission for demo purposes
+    document.querySelectorAll('form').forEach(form => {
+      form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        alert('✅ Form submitted! Check the console and terminal for tracking data.');
+        
+        // Reset form after "submission"
+        setTimeout(() => {
+          this.reset();
+        }, 500);
+      });
+    });
+    
+    // Log when YourCRM is ready
+    setTimeout(() => {
+      if (window.YourCRM) {
+        console.log('%c✅ YourCRM is loaded and ready!', 'color: green; font-weight: bold; font-size: 14px;');
+      }
+    }, 1000);
+  </script>
+</body>
+</html>

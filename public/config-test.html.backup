@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Config Test - YourCRM</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1000px;
+      margin: 30px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    h1 { color: #333; margin-top: 0; }
+    h2 { color: #666; border-bottom: 2px solid #0066cc; padding-bottom: 10px; }
+    .status {
+      padding: 15px;
+      border-radius: 4px;
+      margin: 10px 0;
+      font-weight: bold;
+    }
+    .enabled { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .disabled { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; padding: 15px; border-radius: 4px; margin: 15px 0; }
+    button {
+      background: #0066cc;
+      color: white;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 5px;
+    }
+    button:hover { background: #0052a3; }
+    button.danger { background: #dc3545; }
+    button.danger:hover { background: #c82333; }
+    button.success { background: #28a745; }
+    button.success:hover { background: #218838; }
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      max-width: 500px;
+      margin-top: 20px;
+    }
+    input, textarea {
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    pre {
+      background: #f4f4f4;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 12px;
+    }
+    .step {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 15px;
+      margin: 15px 0;
+    }
+    .step strong { color: #856404; }
+    code {
+      background: #f4f4f4;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+  </style>
+  
+  <!-- YourCRM Tracking Script -->
+  <script src="http://localhost:5000/script/abc-123.js" async defer></script>
+</head>
+<body>
+  <div class="container">
+    <h1>🧪 Configuration Test Page</h1>
+    <p>This page demonstrates how client configuration changes affect tracking behavior.</p>
+    
+    <div class="info">
+      <strong>📝 Note:</strong> Configuration changes require a <strong>page reload</strong> to take effect. 
+      The script loads the config once when the page loads.
+    </div>
+  </div>
+
+  <div class="container">
+    <h2>Current Status</h2>
+    <div id="status">
+      <p>Loading configuration...</p>
+    </div>
+  </div>
+
+  <div class="container">
+    <h2>🎮 Control Panel</h2>
+    
+    <h3>Step 1: Change Configuration</h3>
+    
+    <h4>📝 Form Tracking</h4>
+    <button class="danger" onclick="disableFormTracking()">❌ Disable Form Tracking</button>
+    <button class="success" onclick="enableFormTracking()">✅ Enable Form Tracking</button>
+    
+    <h4>💬 Chat Widget</h4>
+    <button class="danger" onclick="disableChatWidget()">❌ Disable Chat Widget</button>
+    <button class="success" onclick="enableChatWidget()">✅ Enable Chat Widget</button>
+    
+    <h4>📊 View Config</h4>
+    <button onclick="getConfig()">📊 View Current Config</button>
+    
+    <h3>Step 2: Reload Page</h3>
+    <div class="step">
+      <strong>Important:</strong> After changing the config, you must reload this page to see the changes take effect.
+      <br><br>
+      <button onclick="location.reload()">🔄 Reload Page Now</button>
+    </div>
+    
+    <h3>Step 3: Test Form Submissions</h3>
+    <p style="color: #666; margin-bottom: 20px;">
+      This page has multiple forms to demonstrate how form tracking works across different form types.
+      Each form will be tracked separately with its own formId and formName.
+    </p>
+  </div>
+
+  <div class="container">
+    <h2>📝 Form 1: Contact Form</h2>
+    <p style="color: #666;">A typical contact form with name, email, and message fields.</p>
+    <form id="contact-form" data-form-name="Contact Form" onsubmit="handleSubmit(event, 'contact-form')">
+      <input type="text" name="name" placeholder="Your Name" required>
+      <input type="email" name="email" placeholder="Your Email" required>
+      <textarea name="message" placeholder="Your message here..." rows="3" required></textarea>
+      <button type="submit">Send Message</button>
+    </form>
+  </div>
+
+  <div class="container">
+    <h2>📧 Form 2: Newsletter Signup</h2>
+    <p style="color: #666;">A simple newsletter subscription form with just email.</p>
+    <form id="newsletter-form" data-form-name="Newsletter Signup" onsubmit="handleSubmit(event, 'newsletter-form')">
+      <input type="email" name="email" placeholder="Enter your email" required>
+      <label style="display: flex; align-items: center; gap: 8px;">
+        <input type="checkbox" name="terms" required>
+        <span>I agree to receive newsletters</span>
+      </label>
+      <button type="submit">Subscribe</button>
+    </form>
+  </div>
+
+  <div class="container">
+    <h2>🛒 Form 3: Order Form</h2>
+    <p style="color: #666;">An e-commerce form with product selection and customer details.</p>
+    <form id="order-form" data-form-name="Order Form" onsubmit="handleSubmit(event, 'order-form')">
+      <label>Product:</label>
+      <select name="product" required>
+        <option value="">Select a product</option>
+        <option value="product-1">Premium Plan - $99</option>
+        <option value="product-2">Standard Plan - $49</option>
+        <option value="product-3">Basic Plan - $19</option>
+      </select>
+      
+      <label>Quantity:</label>
+      <input type="number" name="quantity" value="1" min="1" max="10" required>
+      
+      <label>Customer Name:</label>
+      <input type="text" name="customer_name" placeholder="Full Name" required>
+      
+      <label>Shipping Address:</label>
+      <input type="text" name="address" placeholder="Street Address" required>
+      
+      <label>Credit Card (will be redacted):</label>
+      <input type="text" name="credit_card" placeholder="Card Number" pattern="[0-9]{16}" maxlength="16">
+      
+      <button type="submit">Place Order</button>
+    </form>
+  </div>
+
+  <div class="container">
+    <h2>👤 Form 4: Login Form</h2>
+    <p style="color: #666;">Authentication form with password field (password will be automatically redacted).</p>
+    <form id="login-form" data-form-name="Login Form" onsubmit="handleSubmit(event, 'login-form')">
+      <input type="text" name="username" placeholder="Username" required>
+      <input type="password" name="password" placeholder="Password" required>
+      <label style="display: flex; align-items: center; gap: 8px;">
+        <input type="checkbox" name="remember_me">
+        <span>Remember me</span>
+      </label>
+      <button type="submit">Login</button>
+    </form>
+  </div>
+
+  <div class="container">
+    <h2>📋 Form 5: Survey Form</h2>
+    <p style="color: #666;">A feedback form with various input types (text, radio, checkbox, range).</p>
+    <form id="survey-form" data-form-name="Customer Survey" onsubmit="handleSubmit(event, 'survey-form')">
+      <label>How satisfied are you with our service?</label>
+      <div style="display: flex; gap: 15px; margin: 10px 0;">
+        <label style="display: flex; align-items: center; gap: 5px;">
+          <input type="radio" name="satisfaction" value="very-satisfied" required>
+          <span>😄 Very Satisfied</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 5px;">
+          <input type="radio" name="satisfaction" value="satisfied">
+          <span>🙂 Satisfied</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 5px;">
+          <input type="radio" name="satisfaction" value="neutral">
+          <span>😐 Neutral</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 5px;">
+          <input type="radio" name="satisfaction" value="dissatisfied">
+          <span>😞 Dissatisfied</span>
+        </label>
+      </div>
+      
+      <label>Rate our service (1-10):</label>
+      <input type="range" name="rating" min="1" max="10" value="5">
+      
+      <label>Which features do you use?</label>
+      <div style="display: flex; flex-direction: column; gap: 8px; margin: 10px 0;">
+        <label style="display: flex; align-items: center; gap: 8px;">
+          <input type="checkbox" name="features" value="analytics">
+          <span>Analytics</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px;">
+          <input type="checkbox" name="features" value="forms">
+          <span>Forms</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px;">
+          <input type="checkbox" name="features" value="chat">
+          <span>Chat Widget</span>
+        </label>
+      </div>
+      
+      <label>Additional Comments:</label>
+      <textarea name="comments" placeholder="Tell us more..." rows="3"></textarea>
+      
+      <button type="submit">Submit Survey</button>
+    </form>
+  </div>
+
+  <div class="container">
+    <h2>📋 Instructions & Testing</h2>
+    
+    <div class="step">
+      <strong>🎯 Multiple Forms Test</strong>
+      <p>This page demonstrates form tracking with 5 different forms:</p>
+      <ol>
+        <li><strong>Contact Form</strong> - Basic name, email, message</li>
+        <li><strong>Newsletter Signup</strong> - Simple email subscription</li>
+        <li><strong>Order Form</strong> - E-commerce with product selection (includes credit_card field that gets redacted)</li>
+        <li><strong>Login Form</strong> - Authentication with password (automatically redacted)</li>
+        <li><strong>Survey Form</strong> - Multiple input types (radio, checkbox, range, textarea)</li>
+      </ol>
+      <p>Each form is tracked separately with its own <code>formId</code> and <code>formName</code>.</p>
+    </div>
+    
+    <div class="step">
+      <strong>Test 1: Forms Enabled (All Forms Tracked)</strong>
+      <ol>
+        <li>Click "✅ Enable Form Tracking"</li>
+        <li>Click "🔄 Reload Page Now"</li>
+        <li>Check console - should say "Form tracking is ENABLED"</li>
+        <li>Submit ANY form - should see tracking request in Network tab</li>
+        <li>Try submitting different forms - each sends its own tracking event</li>
+        <li>Notice: password and credit_card fields are marked as [REDACTED]</li>
+      </ol>
+    </div>
+    
+    <div class="step">
+      <strong>Test 2: Forms Disabled (No Forms Tracked)</strong>
+      <ol>
+        <li>Click "❌ Disable Form Tracking"</li>
+        <li>Click "🔄 Reload Page Now"</li>
+        <li>Check console - should say "Form tracking is DISABLED"</li>
+        <li>Submit ANY form - NO tracking requests sent</li>
+        <li>All 5 forms should work normally but without tracking</li>
+      </ol>
+    </div>
+    
+    <div class="step">
+      <strong>🔍 What to Look For</strong>
+      <ul>
+        <li>Open DevTools → Network tab → Filter by "track"</li>
+        <li>When enabled: Each form submission creates a POST to <code>/v1/track/events</code></li>
+        <li>Request payload includes: formId, formName, fields, submittedAt</li>
+        <li>Sensitive fields (password, credit_card) are automatically redacted</li>
+        <li>Console logs show which form was submitted</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="container">
+    <h2>📊 Configuration Output</h2>
+    <pre id="config-output">Click "View Current Config" to see the configuration</pre>
+  </div>
+
+  <script>
+    // Display current config status
+    setTimeout(() => {
+      if (window.YourCRM && window.YourCRM.q) {
+        const initCmd = window.YourCRM.q.find(cmd => cmd[0] === 'init');
+        if (initCmd && initCmd[1]) {
+          const config = initCmd[1];
+          displayStatus(config);
+        }
+      }
+    }, 1000);
+
+    function displayStatus(config) {
+      const formsEnabled = config.widgets?.forms?.enabled;
+      const chatEnabled = config.widgets?.chat?.enabled;
+      const analyticsEnabled = config.widgets?.analytics?.enabled;
+      
+      document.getElementById('status').innerHTML = `
+        <div class="status ${formsEnabled ? 'enabled' : 'disabled'}">
+          📝 Form Tracking: ${formsEnabled ? 'ENABLED' : 'DISABLED'}
+        </div>
+        <div class="status ${chatEnabled ? 'enabled' : 'disabled'}">
+          💬 Chat Widget: ${chatEnabled ? 'ENABLED' : 'DISABLED'}
+        </div>
+        <div class="status ${analyticsEnabled ? 'enabled' : 'disabled'}">
+          📊 Analytics: ${analyticsEnabled ? 'ENABLED' : 'DISABLED'}
+        </div>
+      `;
+    }
+
+    async function disableFormTracking() {
+      try {
+        const response = await fetch('http://localhost:5000/v1/clients/abc-123', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            widgets: {
+              forms: {
+                enabled: false
+              }
+            }
+          })
+        });
+        
+        if (response.ok) {
+          alert('✅ Form tracking disabled!\n\nNow reload the page to see the changes.');
+          console.log('Form tracking disabled - reload page to apply');
+        } else {
+          alert('❌ Failed to update configuration');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert('❌ Error updating configuration');
+      }
+    }
+
+    async function enableFormTracking() {
+      try {
+        const response = await fetch('http://localhost:5000/v1/clients/abc-123', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            widgets: {
+              forms: {
+                enabled: true
+              }
+            }
+          })
+        });
+        
+        if (response.ok) {
+          alert('✅ Form tracking enabled!\n\nNow reload the page to see the changes.');
+          console.log('Form tracking enabled - reload page to apply');
+        } else {
+          alert('❌ Failed to update configuration');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert('❌ Error updating configuration');
+      }
+    }
+
+    async function disableChatWidget() {
+      try {
+        const response = await fetch('http://localhost:5000/v1/clients/abc-123', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            widgets: {
+              chat: {
+                enabled: false
+              }
+            }
+          })
+        });
+        
+        if (response.ok) {
+          alert('✅ Chat widget disabled!\n\nNow reload the page to see the changes.');
+          console.log('Chat widget disabled - reload page to apply');
+        } else {
+          alert('❌ Failed to update configuration');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert('❌ Error updating configuration');
+      }
+    }
+
+    async function enableChatWidget() {
+      try {
+        const response = await fetch('http://localhost:5000/v1/clients/abc-123', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            widgets: {
+              chat: {
+                enabled: true
+              }
+            }
+          })
+        });
+        
+        if (response.ok) {
+          alert('✅ Chat widget enabled!\n\nNow reload the page to see the changes.');
+          console.log('Chat widget enabled - reload page to apply');
+        } else {
+          alert('❌ Failed to update configuration');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert('❌ Error updating configuration');
+      }
+    }
+
+    async function getConfig() {
+      try {
+        const response = await fetch('http://localhost:5000/v1/clients/abc-123');
+        const config = await response.json();
+        document.getElementById('config-output').textContent = JSON.stringify(config, null, 2);
+      } catch (error) {
+        console.error('Error:', error);
+        document.getElementById('config-output').textContent = 'Error loading config';
+      }
+    }
+
+    function handleSubmit(event, formId) {
+      event.preventDefault();
+      const formName = event.target.getAttribute('data-form-name') || formId;
+      
+      console.log(`%c📝 Form Submitted: ${formName}`, 'color: blue; font-weight: bold; font-size: 14px;');
+      console.log(`Form ID: ${formId}`);
+      console.log('Check the network tab to see if a tracking request was sent to /v1/track/events');
+      console.log('If form tracking is enabled, this form data will be sent to the server.');
+      
+      // Show form data in console
+      const formData = new FormData(event.target);
+      const data = {};
+      for (let [key, value] of formData.entries()) {
+        if (key.includes('password') || key.includes('credit_card')) {
+          data[key] = '[REDACTED]';
+        } else {
+          data[key] = value;
+        }
+      }
+      console.log('Form Data:', data);
+      
+      alert(`✅ ${formName} submitted!\n\nForm ID: ${formId}\nCheck the console and Network tab for tracking details.`);
+      event.target.reset();
+    }
+
+    // Log when YourCRM is ready
+    setTimeout(() => {
+      console.log('%c🎯 YourCRM Test Page Loaded', 'color: green; font-weight: bold; font-size: 16px;');
+      console.log('1. Check if form tracking is enabled in the logs above');
+      console.log('2. Submit the form to test tracking');
+      console.log('3. Use the buttons to change config and reload');
+    }, 1500);
+  </script>
+</body>
+</html>

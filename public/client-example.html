@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Client Integration Example - YourCRM</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f9f9f9;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 40px;
+      border-radius: 8px;
+      margin-bottom: 30px;
+    }
+    
+    .header h1 {
+      margin: 0 0 10px 0;
+    }
+    
+    .content {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    
+    .section {
+      margin-bottom: 40px;
+    }
+    
+    .section h2 {
+      color: #333;
+      border-bottom: 2px solid #667eea;
+      padding-bottom: 10px;
+      margin-bottom: 20px;
+    }
+    
+    form {
+      display: grid;
+      gap: 15px;
+      max-width: 500px;
+    }
+    
+    .form-group {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    label {
+      font-weight: bold;
+      margin-bottom: 5px;
+      color: #555;
+    }
+    
+    input, textarea, select {
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    
+    button {
+      background: #667eea;
+      color: white;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    
+    button:hover {
+      background: #5568d3;
+    }
+    
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+    
+    .feature {
+      padding: 20px;
+      background: #f5f7ff;
+      border-left: 4px solid #667eea;
+      border-radius: 4px;
+    }
+    
+    .feature h3 {
+      margin-top: 0;
+      color: #667eea;
+    }
+    
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+    
+    .stat-card {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    
+    .stat-value {
+      font-size: 36px;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    
+    .stat-label {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    
+    .code-block {
+      background: #2d2d2d;
+      color: #f8f8f2;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      margin: 10px 0;
+    }
+    
+    .tracked-indicator {
+      display: inline-block;
+      background: #28a745;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+      margin-left: 10px;
+    }
+  </style>
+  
+  <!-- 
+    🎯 ONE LINE OF CODE - That's all you need! 
+    Copy this line to your website and you're done.
+  -->
+  <script src="http://localhost:5000/script/abc-123.js" async defer></script>
+</head>
+<body>
+  <div class="header">
+    <h1>🚀 YourCRM Integration Demo</h1>
+    <p>See how easy it is to add powerful tracking to your website with just one line of code!</p>
+  </div>
+  
+  <div class="content">
+    <div class="section">
+      <h2>✨ Active Features on This Page</h2>
+      <div class="feature-grid">
+        <div class="feature">
+          <h3>📊 Analytics</h3>
+          <p>Automatic page view tracking is enabled. Every visit is being recorded.</p>
+        </div>
+        <div class="feature">
+          <h3>📝 Form Tracking</h3>
+          <p>All form submissions are automatically captured with sensitive field redaction.</p>
+        </div>
+        <div class="feature">
+          <h3>💬 Chat Widget</h3>
+          <p>Live chat widget is visible in the bottom-right corner (click to test!).</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="content">
+    <div class="section">
+      <h2>📞 Contact Us <span class="tracked-indicator">TRACKED</span></h2>
+      <p>This form is automatically tracked. Try submitting it and check your console!</p>
+      
+      <form id="contact-form">
+        <div class="form-group">
+          <label for="name">Full Name *</label>
+          <input type="text" id="name" name="name" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="email">Email Address *</label>
+          <input type="email" id="email" name="email" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="company">Company</label>
+          <input type="text" id="company" name="company">
+        </div>
+        
+        <div class="form-group">
+          <label for="subject">Subject *</label>
+          <select id="subject" name="subject" required>
+            <option value="">Select a topic</option>
+            <option value="sales">Sales Inquiry</option>
+            <option value="support">Technical Support</option>
+            <option value="partnership">Partnership</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label for="message">Message *</label>
+          <textarea id="message" name="message" rows="4" required></textarea>
+        </div>
+        
+        <button type="submit">Send Message</button>
+      </form>
+    </div>
+  </div>
+  
+  <div class="content">
+    <div class="section">
+      <h2>📧 Newsletter Signup <span class="tracked-indicator">TRACKED</span></h2>
+      <p>Even simple forms are tracked automatically!</p>
+      
+      <form id="newsletter-form">
+        <div class="form-group">
+          <label for="newsletter-email">Email Address</label>
+          <input type="email" id="newsletter-email" name="email" placeholder="your@email.com" required>
+        </div>
+        
+        <div class="form-group">
+          <label>
+            <input type="checkbox" name="marketing" value="yes">
+            I agree to receive marketing emails
+          </label>
+        </div>
+        
+        <button type="submit">Subscribe</button>
+      </form>
+    </div>
+  </div>
+  
+  <div class="content">
+    <div class="section">
+      <h2>📈 Real-Time Stats (Simulated)</h2>
+      <div class="stats">
+        <div class="stat-card">
+          <div class="stat-value" id="pageviews">0</div>
+          <div class="stat-label">Page Views</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="forms">0</div>
+          <div class="stat-label">Forms Submitted</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="visitors">0</div>
+          <div class="stat-label">Unique Visitors</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="content">
+    <div class="section">
+      <h2>🔧 Integration Code</h2>
+      <p>All you need to add to your website:</p>
+      
+      <div class="code-block">
+&lt;script src="http://localhost:5000/script/abc-123.js" async defer&gt;&lt;/script&gt;
+      </div>
+      
+      <p style="margin-top: 20px;">That's it! This single line enables:</p>
+      <ul>
+        <li>✅ Automatic page view tracking</li>
+        <li>✅ Automatic form submission tracking</li>
+        <li>✅ Chat widget integration</li>
+        <li>✅ User identification</li>
+        <li>✅ Custom event tracking</li>
+      </ul>
+    </div>
+  </div>
+  
+  <div class="content">
+    <div class="section">
+      <h2>🎮 Manual Tracking Examples</h2>
+      <p>You can also manually track events using the JavaScript API:</p>
+      
+      <button onclick="trackCustomEvent()">Track Custom Event</button>
+      <button onclick="identifyUser()">Identify User</button>
+      <button onclick="trackManualForm()">Track Manual Form</button>
+      
+      <div class="code-block" style="margin-top: 20px;">
+// Track custom events
+YourCRM('track', {
+  name: 'button_clicked',
+  properties: { buttonId: 'hero-cta' }
+});
+
+// Identify users
+YourCRM('identify', {
+  name: 'John Doe',
+  email: 'john@example.com'
+});
+
+// Manually track forms
+YourCRM('trackForm', {
+  formId: 'custom-form',
+  formName: 'Custom Form',
+  fields: { field1: 'value1' }
+});
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Simulate stats counter
+    let pageviews = 1;
+    let forms = 0;
+    let visitors = 1;
+    
+    document.getElementById('pageviews').textContent = pageviews;
+    document.getElementById('visitors').textContent = visitors;
+    
+    // Handle form submissions
+    document.querySelectorAll('form').forEach(form => {
+      form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        forms++;
+        document.getElementById('forms').textContent = forms;
+        
+        alert('✅ Form submitted successfully!\n\nCheck your:\n• Browser console for tracking logs\n• Server terminal for backend logs');
+        
+        this.reset();
+      });
+    });
+    
+    // Manual tracking examples
+    function trackCustomEvent() {
+      if (window.YourCRM) {
+        YourCRM('track', {
+          name: 'demo_button_clicked',
+          properties: {
+            buttonType: 'custom_event',
+            timestamp: new Date().toISOString()
+          }
+        });
+        alert('✅ Custom event tracked! Check the console.');
+      }
+    }
+    
+    function identifyUser() {
+      if (window.YourCRM) {
+        YourCRM('identify', {
+          name: 'Demo User',
+          email: 'demo@example.com',
+          plan: 'premium'
+        });
+        alert('✅ User identified! Check the console.');
+      }
+    }
+    
+    function trackManualForm() {
+      if (window.YourCRM) {
+        YourCRM('trackForm', {
+          formId: 'manual-form',
+          formName: 'Manual Form Example',
+          fields: {
+            field1: 'value1',
+            field2: 'value2'
+          }
+        });
+        alert('✅ Manual form tracked! Check the console.');
+      }
+    }
+    
+    // Log when YourCRM is ready
+    setTimeout(() => {
+      if (window.YourCRM) {
+        console.log('%c🎉 YourCRM is loaded and tracking!', 'color: green; font-weight: bold; font-size: 16px;');
+        console.log('%cTry submitting forms or clicking the manual tracking buttons!', 'color: blue;');
+      }
+    }, 1000);
+  </script>
+</body>
+</html>
