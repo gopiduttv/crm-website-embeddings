@@ -4,6 +4,8 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TrackingModule } from './tracking/tracking.module';
 import { EmbeddingModule } from './embedding/embedding.module';
+import { AuthModule } from './auth/auth.module';
+import { FormsModule } from './forms/forms.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 
@@ -15,6 +17,8 @@ import { join } from 'path';
     }),
     TrackingModule,
     EmbeddingModule,
+    AuthModule,
+    FormsModule,
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'public'),
       serveRoot: '/',

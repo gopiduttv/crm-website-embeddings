@@ -14,6 +14,14 @@ export interface AnalyticsConfig {
   trackClicks?: boolean;
 }
 
+export interface BatchCaptureConfig {
+  enabled: boolean;                    // Enable batch capture mode
+  debounceMs?: number;                 // Wait time after last field blur (default: 5000)
+  captureOnVisibilityChange?: boolean; // Capture when tab hidden (default: true)
+  captureOnBeforeUnload?: boolean;     // Capture on page close (default: true)
+  minFieldsForCapture?: number;        // Min fields before sending (default: 1)
+}
+
 export interface FormsConfig {
   enabled: boolean;
   autoCapture?: boolean;
@@ -31,6 +39,9 @@ export interface FormsConfig {
     change?: boolean;         // For select/checkbox/radio
     visibilitychange?: boolean; // Optional (tab hidden)
   };
+  
+  // Batch capture configuration (NEW)
+  batchCapture?: BatchCaptureConfig;
   
   // Performance settings
   debounceMs?: number;      // Debounce for visibilitychange

@@ -1,56 +1,40 @@
 /**
  * YourCRM Main Application
  * This script is loaded by the bootloader and provides full tracking functionality
- */
-/**
- * YourCRM Tracking Script (Production)
- * Lightweight bootloader that fetches configuration and loads the appropriate tracking code
+ * The bootloader has already injected the configuration via YourCRM('init', config)
  */
 (function() {
   'use strict';
 
-  console.log('[YourCRM] Initializing tracker...');
+  console.log('[YourCRM] Main application loaded');
 
-  // Get the queue that was set up by the embed script
+  // Get the queue that was set up by the bootloader
   const queue = window.YourCRM.q || [];
+  let config = null;
   let apiKey = null;
   let apiUrl = null;
 
-  // Find the init command in the queue
+  // Find the init command in the queue (pre-loaded by bootloader)
   queue.forEach(args => {
     if (args[0] === 'init') {
-      apiKey = args[1].apiKey;
-      apiUrl = args[1].apiUrl || 'http://localhost:5000';
+      config = args[1];
+      apiKey = config.apiKey;
+      apiUrl = config.apiUrl || 'http://localhost:5000';
     }
   });
 
-  if (!apiKey) {
-    console.error('[YourCRM] No API key provided. Call YourCRM("init", { apiKey: "..." }) first.');
+  if (!config || !apiKey) {
+    console.error('[YourCRM] No configuration provided. The bootloader should have called YourCRM("init", {...}) with embedded config.');
     return;
   }
 
-  console.log('[YourCRM] Fetching configuration for API key:', apiKey);
+  console.log('[YourCRM] Configuration loaded from bootloader:', config);
 
-  // Fetch client configuration from backend
-  fetch(apiUrl + '/v1/config/' + apiKey)
-    .then(response => {
-      if (!response.ok) {
-        throw new Error('Failed to fetch configuration: ' + response.statusText);
-      }
-      return response.json();
-    })
-    .then(config => {
-      console.log('[YourCRM] Configuration loaded:', config);
-      
-      // Store config globally
-      window.YourCRM.config = config;
-      
-      // Initialize tracking based on config
-      initializeTracking(config, apiKey, apiUrl);
-    })
-    .catch(err => {
-      console.error('[YourCRM] Failed to load configuration:', err);
-    });
+  // Store config globally
+  window.YourCRM.config = config;
+
+  // Initialize tracking immediately (no API call needed!)
+  initializeTracking(config, apiKey, apiUrl);
 
   /**
    * Initialize tracking with the fetched configuration
@@ -60,20 +44,16 @@
 
     // Track pageview automatically if analytics enabled
     if (config.widgets?.analytics?.enabled && config.widgets?.analytics?.trackPageViews) {
-      const pageUrl = window.location.href;
-      const isValidUrl = pageUrl.startsWith('http://') || pageUrl.startsWith('https://');
-      
       sendEvent({
-        id: generateUUID(),
         apiKey: apiKey,
         type: 'pageview',
         page: {
-          url: isValidUrl ? pageUrl : 'https://unknown.local' + window.location.pathname,
           path: window.location.pathname,
           title: document.title || 'Untitled',
+          search: window.location.search,
+          hash: window.location.hash,
           referrer: document.referrer || undefined
-        },
-        userAgent: navigator.userAgent
+        }
       }, apiUrl);
     }
 
@@ -123,17 +103,31 @@
    * Initialize form tracking
    */
   function initFormTracking(formConfig, apiKey, apiUrl) {
+    console.log('[YourCRM] 🔍 initFormTracking called with formConfig:', formConfig);
+    
     const autoCapture = formConfig.autoCapture !== false;
     const selector = formConfig.captureSelector || 'form';
     const excludeFields = formConfig.excludeFields || ['password', 'credit_card', 'ssn', 'cvv'];
+    const trackFields = formConfig.trackFields || ['email', 'phone', 'name', 'first_name', 'last_name', 'company', 'organization'];
+    const triggers = formConfig.triggers || { blur: true, beforeunload: true, change: true };
+    const trackInteractions = formConfig.trackInteractions !== false;
+    const batchCapture = formConfig.batchCapture || { enabled: false };
 
+    console.log('[YourCRM] 🔍 batchCapture extracted:', batchCapture);
+    console.log('[YourCRM] 🔍 batchCapture.enabled:', batchCapture.enabled);
+    
     console.log('[YourCRM] Form tracking initialized', {
       autoCapture,
       selector,
-      excludeFields
+      excludeFields,
+      trackFields,
+      triggers,
+      trackInteractions,
+      batchCapture
     });
 
     if (autoCapture) {
+      // 1. Track form submissions
       document.addEventListener('submit', function(event) {
         const form = event.target;
         if (form.matches(selector)) {
@@ -141,8 +135,446 @@
         }
       }, true);
 
-      console.log('[YourCRM] Auto-capture enabled for forms matching:', selector);
+      console.log('[YourCRM] Form submission tracking enabled');
     }
+
+    if (trackInteractions) {
+      // Check if batch capture is enabled
+      if (batchCapture.enabled) {
+        console.log('[YourCRM] 🔥 Batch capture mode enabled');
+        trackFormFieldInteractionsBatched(selector, trackFields, excludeFields, triggers, batchCapture, apiKey, apiUrl);
+      } else {
+        // Legacy: Track field interactions one at a time
+        console.log('[YourCRM] Field-by-field tracking mode (legacy)');
+        trackFormFieldInteractions(selector, trackFields, excludeFields, triggers, apiKey, apiUrl);
+        
+        // Track abandoned fields on beforeunload
+        if (triggers.beforeunload) {
+          window.addEventListener('beforeunload', function() {
+            captureAbandonedFields(selector, trackFields, excludeFields, apiKey, apiUrl);
+          });
+          console.log('[YourCRM] beforeunload tracking enabled');
+        }
+      }
+    }
+  }
+
+  /**
+   * Batch capture: Track all fields together and send as one event
+   */
+  function trackFormFieldInteractionsBatched(formSelector, trackFields, excludeFields, triggers, batchConfig, apiKey, apiUrl) {
+    // State tracker for all forms
+    const formStateTracker = new Map(); // formId → { fields, lastActivity, lastSent, form }
+    const debounceTimers = new Map();   // formId → timerId
+    
+    const debounceMs = batchConfig.debounceMs || 5000;
+    const minFields = batchConfig.minFieldsForCapture || 1;
+    
+    console.log('[YourCRM] Batch capture config:', { debounceMs, minFields });
+    
+    /**
+     * Send batched form data for a specific form
+     */
+    function sendBatchedFormData(formId) {
+      const state = formStateTracker.get(formId);
+      if (!state || Object.keys(state.fields).length < minFields) {
+        console.log('[YourCRM] Not enough fields to send for:', formId);
+        return;
+      }
+      
+      // Check if already sent recently
+      if (state.lastSent && (Date.now() - state.lastSent) < 1000) {
+        console.log('[YourCRM] Already sent recently, skipping:', formId);
+        return;
+      }
+      
+      console.log('[YourCRM] 📦 Sending batched form data:', formId, state.fields);
+      
+      const fieldCount = Object.keys(state.fields).length;
+      const formProgress = state.form ? calculateFormProgress(state.form) : null;
+      
+      sendEvent({
+        apiKey: apiKey,
+        type: 'form_interaction',
+        form: {
+          formId: formId,
+          trigger: 'batch_capture',
+          fields: state.fields,          // ALL fields at once!
+          fieldCount: fieldCount,
+          formProgress: formProgress
+        },
+        page: {
+          path: window.location.pathname,
+          title: document.title || 'Untitled',
+          search: window.location.search,
+          hash: window.location.hash
+        }
+      }, apiUrl);
+      
+      // Mark as sent
+      state.lastSent = Date.now();
+    }
+    
+    /**
+     * Reset debounce timer for a form
+     */
+    function resetDebounceTimer(formId) {
+      // Clear existing timer
+      if (debounceTimers.has(formId)) {
+        clearTimeout(debounceTimers.get(formId));
+      }
+      
+      // Set new timer
+      const timer = setTimeout(function() {
+        console.log('[YourCRM] ⏰ Debounce timer fired for:', formId);
+        sendBatchedFormData(formId);
+      }, debounceMs);
+      
+      debounceTimers.set(formId, timer);
+      console.log('[YourCRM] ⏲️  Debounce timer reset for:', formId, '(' + debounceMs + 'ms)');
+    }
+    
+    /**
+     * Track a field value in memory (don't send immediately)
+     */
+    function trackFieldInMemory(formId, form, fieldName, fieldValue) {
+      console.log('[YourCRM] 💾 Tracking field in memory:', formId, fieldName);
+      
+      if (!formStateTracker.has(formId)) {
+        formStateTracker.set(formId, { 
+          fields: {}, 
+          lastActivity: Date.now(),
+          lastSent: null,
+          form: form
+        });
+      }
+      
+      const state = formStateTracker.get(formId);
+      state.fields[fieldName] = fieldValue;
+      state.lastActivity = Date.now();
+      
+      console.log('[YourCRM] Current fields for', formId + ':', Object.keys(state.fields));
+      
+      // Reset debounce timer
+      resetDebounceTimer(formId);
+    }
+    
+    /**
+     * Attach listeners to forms
+     */
+    function attachBatchListeners() {
+      const forms = document.querySelectorAll(formSelector);
+      console.log('[YourCRM] Attaching batch listeners to', forms.length, 'forms');
+      
+      forms.forEach(function(form) {
+        const formId = form.id || form.name || generateFormId(form);
+        console.log('[YourCRM] Setting up batch tracking for form:', formId);
+        
+        const allFields = form.querySelectorAll('input, textarea, select');
+        
+        allFields.forEach(function(input) {
+          const fieldName = input.name || input.id;
+          
+          if (!shouldTrackField(fieldName, input.type, trackFields, excludeFields)) {
+            return;
+          }
+          
+          // Blur event - track in memory
+          if (triggers.blur) {
+            input.addEventListener('blur', function() {
+              if (input.value && input.value.trim() !== '') {
+                console.log('[YourCRM] ⚡ Blur on:', fieldName, '→ tracking in memory');
+                trackFieldInMemory(formId, form, fieldName, input.value);
+              }
+            });
+          }
+          
+          // Change event for selects/checkboxes/radio
+          if (triggers.change && ['select-one', 'select-multiple', 'checkbox', 'radio'].includes(input.type)) {
+            input.addEventListener('change', function() {
+              if (input.value) {
+                console.log('[YourCRM] ⚡ Change on:', fieldName, '→ tracking in memory');
+                trackFieldInMemory(formId, form, fieldName, input.value);
+              }
+            });
+          }
+        });
+      });
+    }
+    
+    // Attach listeners when DOM is ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', attachBatchListeners);
+    } else {
+      attachBatchListeners();
+    }
+    
+    // Watch for dynamically added forms
+    const observer = new MutationObserver(function(mutations) {
+      mutations.forEach(function(mutation) {
+        mutation.addedNodes.forEach(function(node) {
+          if (node.nodeType === 1) {
+            if (node.tagName === 'FORM' && node.matches(formSelector)) {
+              attachBatchListeners();
+            } else if (node.querySelectorAll) {
+              const forms = node.querySelectorAll(formSelector);
+              if (forms.length > 0) {
+                attachBatchListeners();
+              }
+            }
+          }
+        });
+      });
+    });
+    
+    observer.observe(document.body, { childList: true, subtree: true });
+    
+    // Capture on visibility change (tab switch)
+    if (batchConfig.captureOnVisibilityChange) {
+      document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+          console.log('[YourCRM] 👁️ Tab hidden, sending batched data...');
+          formStateTracker.forEach(function(state, formId) {
+            if (!state.lastSent || state.lastActivity > state.lastSent) {
+              sendBatchedFormData(formId);
+            }
+          });
+        }
+      });
+      console.log('[YourCRM] visibilitychange capture enabled');
+    }
+    
+    // Capture on beforeunload (page close)
+    if (batchConfig.captureOnBeforeUnload) {
+      window.addEventListener('beforeunload', function() {
+        console.log('[YourCRM] 🚪 Page closing, sending batched data...');
+        formStateTracker.forEach(function(state, formId) {
+          if (!state.lastSent || state.lastActivity > state.lastSent) {
+            sendBatchedFormData(formId);
+          }
+        });
+      });
+      console.log('[YourCRM] beforeunload capture enabled');
+    }
+  }
+
+  /**
+   * Track field-level interactions (blur, change) - LEGACY MODE
+   */
+  function trackFormFieldInteractions(formSelector, trackFields, excludeFields, triggers, apiKey, apiUrl) {
+    function attachToExistingForms() {
+      const forms = document.querySelectorAll(formSelector);
+      console.log('[YourCRM] Found ' + forms.length + ' forms to track');
+      
+      forms.forEach(function(form) {
+        attachFieldListeners(form, trackFields, excludeFields, triggers, apiKey, apiUrl);
+      });
+    }
+
+    // Wait for DOM to be ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', attachToExistingForms);
+    } else {
+      // DOM is already ready
+      attachToExistingForms();
+    }
+
+    // Watch for dynamically added forms (SPA support)
+    const observer = new MutationObserver(function(mutations) {
+      mutations.forEach(function(mutation) {
+        mutation.addedNodes.forEach(function(node) {
+          if (node.nodeType === 1) {
+            if (node.tagName === 'FORM' && node.matches(formSelector)) {
+              console.log('[YourCRM] New form detected:', node.id || node.name || 'unnamed');
+              attachFieldListeners(node, trackFields, excludeFields, triggers, apiKey, apiUrl);
+            } else if (node.querySelectorAll) {
+              node.querySelectorAll(formSelector).forEach(function(form) {
+                console.log('[YourCRM] New form detected in added node:', form.id || form.name || 'unnamed');
+                attachFieldListeners(form, trackFields, excludeFields, triggers, apiKey, apiUrl);
+              });
+            }
+          }
+        });
+      });
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+    console.log('[YourCRM] Field interaction tracking enabled (blur, change)');
+  }
+
+  /**
+   * Attach listeners to form fields
+   */
+  function attachFieldListeners(form, trackFields, excludeFields, triggers, apiKey, apiUrl) {
+    const formId = form.id || form.name || generateFormId(form);
+    console.log('[YourCRM] Attaching listeners to form:', formId);
+
+    const allFields = form.querySelectorAll('input, textarea, select');
+    console.log('[YourCRM] Form has', allFields.length, 'fields');
+    
+    let trackedFieldCount = 0;
+
+    allFields.forEach(function(input) {
+      const fieldName = input.name || input.id;
+      
+      if (!shouldTrackField(fieldName, input.type, trackFields, excludeFields)) {
+        console.log('[YourCRM] Skipping field:', fieldName, '(type:', input.type + ')');
+        return;
+      }
+
+      trackedFieldCount++;
+      console.log('[YourCRM] ✓ Tracking field:', fieldName, '(type:', input.type + ')');
+
+      // Blur event - primary trigger for partial leads
+      if (triggers.blur) {
+        input.addEventListener('blur', function() {
+          console.log('[YourCRM] ⚡ Blur event fired on:', fieldName, 'value:', input.value);
+          if (input.value && input.value.trim() !== '') {
+            trackFieldInteraction(formId, form, input, 'blur', apiKey, apiUrl);
+          } else {
+            console.log('[YourCRM] Field empty, not tracking');
+          }
+        });
+      }
+
+      // Change event - for select/checkbox/radio
+      if (triggers.change && ['select-one', 'select-multiple', 'checkbox', 'radio'].includes(input.type)) {
+        input.addEventListener('change', function() {
+          console.log('[YourCRM] ⚡ Change event fired on:', fieldName);
+          if (input.value) {
+            trackFieldInteraction(formId, form, input, 'change', apiKey, apiUrl);
+          }
+        });
+      }
+    });
+
+    console.log('[YourCRM] Attached listeners to', trackedFieldCount, 'trackable fields in form:', formId);
+  }
+
+  /**
+   * Check if field should be tracked
+   */
+  function shouldTrackField(fieldName, fieldType, trackFields, excludeFields) {
+    if (!fieldName) {
+      console.log('[YourCRM] shouldTrackField: No field name');
+      return false;
+    }
+    
+    if (fieldType === 'hidden' || fieldType === 'password') {
+      console.log('[YourCRM] shouldTrackField: Skipping', fieldName, '- hidden/password field');
+      return false;
+    }
+
+    // Skip excluded fields
+    const isExcluded = excludeFields.some(function(excluded) {
+      return fieldName.toLowerCase().includes(excluded.toLowerCase());
+    });
+    if (isExcluded) {
+      console.log('[YourCRM] shouldTrackField: Skipping', fieldName, '- excluded field');
+      return false;
+    }
+
+    // Only track configured lead fields
+    const isTracked = trackFields.some(function(tracked) {
+      return fieldName.toLowerCase().includes(tracked.toLowerCase());
+    });
+    
+    console.log('[YourCRM] shouldTrackField:', fieldName, '→', isTracked ? 'YES' : 'NO', 
+                '(trackFields:', trackFields.join(', ') + ')');
+    
+    return isTracked;
+  }
+
+  /**
+   * Track individual field interaction
+   */
+  function trackFieldInteraction(formId, form, input, trigger, apiKey, apiUrl) {
+    const fieldName = input.name || input.id;
+    
+    console.log('[YourCRM] Field interaction:', formId, fieldName, trigger);
+
+    sendEvent({
+      apiKey: apiKey,
+      type: 'form_interaction',
+      form: {
+        formId: formId,
+        trigger: trigger,
+        fieldName: fieldName,
+        fieldValue: input.value,
+        fieldType: input.type,
+        formProgress: calculateFormProgress(form)
+      },
+      page: {
+        path: window.location.pathname,
+        title: document.title || 'Untitled',
+        search: window.location.search,
+        hash: window.location.hash
+      }
+    }, apiUrl);
+  }
+
+  /**
+   * Capture abandoned fields on page unload
+   */
+  function captureAbandonedFields(formSelector, trackFields, excludeFields, apiKey, apiUrl) {
+    document.querySelectorAll(formSelector).forEach(function(form) {
+      const formId = form.id || form.name || generateFormId(form);
+      const fields = {};
+      let hasFields = false;
+
+      form.querySelectorAll('input, textarea, select').forEach(function(input) {
+        const fieldName = input.name || input.id;
+        
+        if (shouldTrackField(fieldName, input.type, trackFields, excludeFields) &&
+            input.value && input.value.trim() !== '') {
+          fields[fieldName] = input.value;
+          hasFields = true;
+        }
+      });
+
+      if (hasFields) {
+        console.log('[YourCRM] Capturing abandoned fields:', formId, fields);
+
+        sendEvent({
+          apiKey: apiKey,
+          type: 'form_interaction',
+          form: {
+            formId: formId,
+            trigger: 'beforeunload',
+            fields: fields,
+            formProgress: calculateFormProgress(form)
+          },
+          page: {
+            path: window.location.pathname,
+            title: document.title || 'Untitled',
+            search: window.location.search,
+            hash: window.location.hash
+          }
+        }, apiUrl);
+      }
+    });
+  }
+
+  /**
+   * Calculate form completion progress
+   */
+  function calculateFormProgress(form) {
+    const allFields = form.querySelectorAll('input:not([type=hidden]), textarea, select');
+    const filledFields = Array.from(allFields).filter(function(el) {
+      return el.value && el.value.trim() !== '';
+    });
+    
+    const completedFieldNames = Array.from(filledFields)
+      .map(function(el) { return el.name || el.id; })
+      .filter(Boolean);
+
+    return {
+      completedFields: completedFieldNames,
+      totalFields: allFields.length,
+      percentComplete: allFields.length > 0 
+        ? Math.round((filledFields.length / allFields.length) * 100) 
+        : 0
+    };
   }
 
   /**
@@ -189,11 +621,8 @@
    */
   function trackFormSubmission(formData, apiKey, apiUrl) {
     const formName = (formData.formName && String(formData.formName).trim()) || 'Unnamed Form';
-    const pageUrl = window.location.href;
-    const isValidUrl = pageUrl.startsWith('http://') || pageUrl.startsWith('https://');
     
     sendEvent({
-      id: generateUUID(),
       apiKey: apiKey,
       type: 'form_submission',
       form: {
@@ -203,24 +632,130 @@
         submittedAt: new Date().toISOString()
       },
       page: {
-        url: isValidUrl ? pageUrl : 'https://unknown.local' + window.location.pathname,
         path: window.location.pathname,
-        title: document.title || 'Untitled'
-      },
-      userAgent: navigator.userAgent
+        title: document.title || 'Untitled',
+        search: window.location.search,
+        hash: window.location.hash
+      }
     }, apiUrl);
   }
 
   /**
-   * Send event to backend
+   * Get or create session ID
+   */
+  function getSessionId() {
+    let sessionId = sessionStorage.getItem('yourcrm_session_id');
+    if (!sessionId) {
+      sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      sessionStorage.setItem('yourcrm_session_id', sessionId);
+      sessionStorage.setItem('yourcrm_session_start', Date.now().toString());
+    }
+    return sessionId;
+  }
+
+  /**
+   * Get or create visitor ID
+   */
+  function getVisitorId() {
+    let visitorId = localStorage.getItem('yourcrm_visitor_id');
+    if (!visitorId) {
+      visitorId = 'visitor_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem('yourcrm_visitor_id', visitorId);
+    }
+    return visitorId;
+  }
+
+  /**
+   * Get session duration
+   */
+  function getSessionDuration() {
+    const startTime = sessionStorage.getItem('yourcrm_session_start');
+    if (startTime) {
+      return Date.now() - parseInt(startTime, 10);
+    }
+    return 0;
+  }
+
+  /**
+   * Get screen resolution
+   */
+  function getScreenResolution() {
+    return window.screen.width + 'x' + window.screen.height;
+  }
+
+  /**
+   * Send event to backend (DTO compliant)
    */
   function sendEvent(eventData, apiUrl) {
     console.log('[YourCRM] Sending event:', eventData.type, eventData);
     
+    // Build DTO-compliant event
+    let pageUrl = window.location.href;
+    
+    // Ensure URL is valid for DTO validation
+    // The @IsUrl() decorator requires a proper protocol and valid format
+    if (!pageUrl.startsWith('http://') && !pageUrl.startsWith('https://')) {
+      // For file:// or other protocols, use a valid fallback
+      pageUrl = 'https://localhost' + (window.location.pathname || '/');
+    }
+    
+    // Additional check: ensure URL is properly formatted
+    // Some validators reject URLs with just domain (need path)
+    try {
+      const urlObj = new URL(pageUrl);
+      if (!urlObj.pathname || urlObj.pathname === '') {
+        urlObj.pathname = '/';
+      }
+      pageUrl = urlObj.toString();
+    } catch (e) {
+      console.warn('[YourCRM] Invalid URL, using fallback:', e);
+      pageUrl = 'https://localhost/';
+    }
+    
+    console.log('[YourCRM] Using URL for tracking:', pageUrl);
+    
+    const dtoEvent = {
+      type: eventData.type,
+      apiKey: eventData.apiKey,
+      timestamp: new Date().toISOString(),
+      url: pageUrl,
+      referrer: document.referrer || undefined,
+      userAgent: navigator.userAgent,
+      screenResolution: getScreenResolution(),
+      sessionId: getSessionId(),
+      visitorId: getVisitorId(),
+      duration: getSessionDuration()
+    };
+
+    // Add event-specific properties
+    if (eventData.page) {
+      dtoEvent.page = {
+        title: eventData.page.title,
+        path: eventData.page.path,
+        search: eventData.page.search,
+        hash: eventData.page.hash,
+        referrer: eventData.page.referrer
+      };
+    }
+
+    if (eventData.form) {
+      dtoEvent.form = eventData.form;
+    }
+
+    if (eventData.widget) {
+      dtoEvent.widget = eventData.widget;
+    }
+
+    if (eventData.config) {
+      dtoEvent.config = eventData.config;
+    }
+
+    console.log('[YourCRM] DTO-compliant event:', dtoEvent);
+    
     fetch(apiUrl + '/v1/track/events', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ events: [eventData] }),
+      body: JSON.stringify({ events: [dtoEvent] }),
       keepalive: true
     })
     .then(response => {
@@ -326,5 +861,28 @@
     }, apiUrl);
   }
 
+  // Expose debug function globally
+  window.YourCRMDebug = function() {
+    console.log('=== YourCRM Debug Info ===');
+    console.log('Config loaded:', !!window.YourCRM?.config);
+    console.log('Forms enabled:', window.YourCRM?.config?.widgets?.forms?.enabled);
+    console.log('Track interactions:', window.YourCRM?.config?.widgets?.forms?.trackInteractions);
+    console.log('Track fields:', window.YourCRM?.config?.widgets?.forms?.trackFields);
+    console.log('Triggers:', window.YourCRM?.config?.widgets?.forms?.triggers);
+    
+    // Check forms
+    const forms = document.querySelectorAll('form');
+    console.log('Forms in DOM:', forms.length);
+    forms.forEach((form, i) => {
+      console.log(`  Form ${i+1}:`, form.id || form.name || 'unnamed');
+      const fields = form.querySelectorAll('input, textarea, select');
+      console.log(`    Fields:`, fields.length);
+      fields.forEach(field => {
+        console.log(`      -`, field.name || field.id, `(${field.type})`);
+      });
+    });
+  };
+
   console.log('[YourCRM] Tracker initialized successfully');
+  console.log('[YourCRM] Type YourCRMDebug() in console to see debug info');
 })();

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Batch Capture Debug Test</title>
+  <style>
+    body { font-family: Arial; max-width: 800px; margin: 30px auto; padding: 20px; background: #f5f5f5; }
+    h1 { color: #333; }
+    .form-box { background: white; padding: 30px; border-radius: 8px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    input { width: 100%; padding: 12px; margin: 10px 0; border: 2px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+    button { background: #3A86FF; color: white; border: none; padding: 12px 24px; border-radius: 4px; cursor: pointer; margin: 5px; }
+    .log { background: #000; color: #0f0; padding: 20px; margin: 20px 0; font-family: monospace; font-size: 12px; max-height: 500px; overflow-y: auto; border-radius: 8px; }
+    .timer { background: #fff3cd; padding: 15px; margin: 15px 0; border-left: 4px solid #ffc107; border-radius: 4px; }
+    .timer strong { color: #856404; }
+  </style>
+</head>
+<body>
+  <h1>🔥 Batch Capture Debug Test</h1>
+  
+  <div class="timer">
+    <strong>⏱️ Timer Status:</strong> <span id="timer-status">Waiting for field interaction...</span>
+  </div>
+
+  <div class="form-box">
+    <h2>Test Form</h2>
+    <form id="test-form">
+      <input type="email" name="email" placeholder="Enter email and press TAB">
+      <input type="text" name="name" placeholder="Enter name and press TAB">
+      <input type="tel" name="phone" placeholder="Enter phone and press TAB">
+      <input type="text" name="company" placeholder="Enter company and press TAB">
+      <button type="submit">Submit</button>
+    </form>
+  </div>
+
+  <button onclick="checkConfig()">Check Config</button>
+  <button onclick="switchTab()">Simulate Tab Switch</button>
+  <button onclick="location.reload()">Reload Page</button>
+
+  <div class="log" id="log"></div>
+
+  <script>
+    let timerCountdown = null;
+    
+    function log(msg, isError = false) {
+      const div = document.getElementById('log');
+      const time = new Date().toLocaleTimeString();
+      const color = isError ? '#ff4444' : '#0f0';
+      div.innerHTML += `<span style="color: ${color}">[${time}] ${msg}</span>\n`;
+      div.scrollTop = div.scrollHeight;
+      console.log(msg);
+    }
+
+    function updateTimer(timeLeft) {
+      const status = document.getElementById('timer-status');
+      if (timeLeft > 0) {
+        status.textContent = `Debounce active - ${timeLeft}ms remaining`;
+        status.style.color = '#ffc107';
+      } else {
+        status.textContent = 'Timer fired! Event should be sent.';
+        status.style.color = '#28a745';
+      }
+    }
+
+    function checkConfig() {
+      log('=== Configuration Check ===');
+      if (window.YourCRM && window.YourCRM.config) {
+        const config = window.YourCRM.config;
+        log('✅ YourCRM.config exists');
+        log('Client ID: ' + config.clientId);
+        log('API Key: ' + config.apiKey);
+        
+        if (config.widgets && config.widgets.forms) {
+          log('✅ Forms config exists');
+          const forms = config.widgets.forms;
+          log('Forms enabled: ' + forms.enabled);
+          log('Track interactions: ' + forms.trackInteractions);
+          
+          if (forms.batchCapture) {
+            log('✅ BatchCapture config exists');
+            log('BatchCapture enabled: ' + forms.batchCapture.enabled);
+            log('Debounce ms: ' + forms.batchCapture.debounceMs);
+            log('Capture on visibility: ' + forms.batchCapture.captureOnVisibilityChange);
+            log('Capture on beforeunload: ' + forms.batchCapture.captureOnBeforeUnload);
+          } else {
+            log('❌ BatchCapture config is MISSING!', true);
+          }
+        } else {
+          log('❌ Forms config is MISSING!', true);
+        }
+      } else {
+        log('❌ YourCRM.config is MISSING!', true);
+      }
+      log('=== End Config Check ===');
+    }
+
+    function switchTab() {
+      log('🔄 Simulating tab switch (triggering visibilitychange)');
+      // Manually trigger visibilitychange
+      document.dispatchEvent(new Event('visibilitychange'));
+    }
+
+    // Monitor field interactions
+    document.getElementById('test-form').addEventListener('focusout', function(e) {
+      if (e.target.matches('input')) {
+        log('👁️ Field blur detected: ' + e.target.name + ' = "' + e.target.value + '"');
+        
+        // Start countdown
+        clearInterval(timerCountdown);
+        let timeLeft = 3000;
+        updateTimer(timeLeft);
+        
+        timerCountdown = setInterval(() => {
+          timeLeft -= 100;
+          updateTimer(timeLeft);
+          if (timeLeft <= 0) {
+            clearInterval(timerCountdown);
+          }
+        }, 100);
+      }
+    }, true);
+
+    // Initial log
+    log('🌐 Page loaded');
+    log('Waiting for YourCRM to load...');
+    
+    // Check after 2 seconds
+    setTimeout(() => {
+      log('');
+      log('🔍 Auto-checking configuration...');
+      checkConfig();
+      log('');
+      log('📝 Instructions:');
+      log('1. Fill in email field and press TAB');
+      log('2. Fill in name field and press TAB');
+      log('3. Wait 3 seconds (watch timer)');
+      log('4. Check console for batch event');
+      log('');
+      log('Expected: ONE event with ALL fields after 3s');
+      log('');
+    }, 2000);
+  </script>
+
+  <!-- YourCRM Bootloader -->
+  <script src="http://localhost:5000/script/test-client.js" async defer></script>
+
+</body>
+</html>

@@ -12,13 +12,15 @@
 A lightweight, easy-to-integrate CRM tracking solution that enables businesses to manually configure website forms, map fields to CRM properties, and automatically track lead-generating events—capturing complete and partial leads without complex integrations.
 
 ### Core Value Proposition
-- **Zero Configuration Setup**: Single script tag integration
+- **Zero Configuration Setup**: Single script tag integration with bootloader pattern
 - **Lead-Focused Tracking**: Only tracks events that generate leads (forms, interactions, chat)
 - **Partial Lead Capture**: Captures abandoned forms with email for follow-up
 - **Manual Form Configuration**: Simple interface to define forms and their fields
 - **Flexible Field Mapping**: Configure how form fields map to CRM properties
 - **Real-time Lead Capture**: Automatic capture of complete and partial leads
 - **Privacy-First**: Automatic redaction of sensitive fields (password, SSN, credit card)
+- **High Performance**: Batch processing with 10k+ events/sec throughput
+- **Scalable Architecture**: Hybrid database design optimized for both config and event data
 
 ### Problem Statement
 Businesses lose 70-80% of potential leads from form abandonment. Current solutions either:
@@ -540,38 +542,107 @@ The system focuses exclusively on events that generate leads, eliminating noise 
 ## 9. Dependencies & Constraints
 
 ### Technical Dependencies
-- NestJS (application framework)
-- Database (PostgreSQL recommended)
-- CDN (for script delivery)
-- Browser support: Chrome 90+, Firefox 88+, Safari 14+, Edge 90+
+
+**Backend Framework**:
+- NestJS 10+ (TypeScript application framework)
+- Modular architecture (TrackingModule, EmbeddingModule)
+
+**Databases** (Hybrid Architecture):
+- **MariaDB 10.11+**: Configuration data (clients, forms, fields, mappings)
+  - TypeORM for ORM
+  - ACID compliance for config integrity
+  - Read-heavy workload with Redis caching
+  
+- **MongoDB 6.0+**: Event and lead data (events, leads, sessions)
+  - Mongoose for ODM
+  - High-throughput writes (10k+ events/sec)
+  - TTL indexes for automatic data expiry (90 days)
+
+**Caching & Queuing**:
+- Redis 6+ (config caching, rate limiting, session storage)
+- RabbitMQ or AWS SQS (async event processing, CRM sync)
+
+**Hosting & CDN**:
+- CDN for script delivery (CloudFront, CloudFlare)
+- Load balancer for API servers (ALB/NLB)
+- Container orchestration (Docker, Kubernetes optional)
+
+**Browser Support**:
+- Chrome 90+, Firefox 88+, Safari 14+, Edge 90+
+- ES6+ JavaScript features
+- Fetch API with keepalive
+- SendBeacon API for reliable event tracking
 
 ### External Dependencies
-- CRM APIs (Salesforce, HubSpot)
-- Email service (for partial lead follow-up)
-- Analytics service (optional)
+- CRM APIs (Salesforce, HubSpot, Zoho) for lead sync
+- Email service for partial lead follow-up notifications (SendGrid, AWS SES)
+- Analytics service for dashboard metrics (optional)
 
-### Constraints
-- Script must load < 100ms
-- Script size < 50KB (minified + gzipped)
-- API latency < 200ms p95
-- GDPR compliance required
-- No cookies without consent
+### Performance Constraints
+- **Script loading**: < 100ms (main-app.v1.js, CDN-cached)
+- **Script size**: < 30KB (minified + gzipped)
+- **API response time**: < 100ms p95 (event ingestion)
+- **Event processing**: < 200ms per event (async via queue)
+- **Config endpoint**: < 50ms p95 (Redis-cached)
+- **Database operations**:
+  - MariaDB config lookup: < 10ms (cached)
+  - MongoDB event insert: < 50ms (bulk)
+  - MongoDB lead upsert: < 100ms
+
+### Compliance & Privacy Constraints
+- **GDPR compliance** required (EU data protection)
+- **CCPA compliance** for California users
+- **No cookies without consent** (uses localStorage/sessionStorage only)
+- **Automatic PII redaction** (passwords, credit cards, SSN)
+- **Data retention**: 90 days for events (configurable)
+- **Right to deletion**: API endpoint for data removal
+
+### Scalability Constraints
+- **Target capacity**: 100k+ events/hour per instance
+- **Max batch size**: 50 events per request
+- **Rate limits**: 10,000 events/min per API key
+- **Database limits**: 
+  - MariaDB: <10k clients (config data is small)
+  - MongoDB: >1B events (sharding by clientId if needed)
+
+### Architecture Constraints
+- **Stateless API servers** (horizontal scaling)
+- **Bootloader pattern** (no per-client script generation)
+- **Event sourcing** (all events stored before processing)
+- **Async processing** (queue-based workers for lead creation)
+- **Idempotent operations** (handle duplicate events gracefully)
 
 ---
 
 ## 10. Resources & References
 
 ### Documentation
-- `DESIGN.md` - Technical design document
+- `DESIGN.md` - Technical design document (hybrid MariaDB/MongoDB architecture)
+- `SCRIPT_STRUCTURE_UPDATE.md` - Bootloader pattern implementation guide
 - `API_DOCS.md` - Complete API documentation
 - `EVENT_TRACKING_DOCUMENTATION.md` - Event tracking details
 - `TESTING_GUIDE.md` - Testing instructions
+- `IMPLEMENTATION_SUMMARY.md` - Implementation overview
 
-### External References
-- [NestJS Documentation](https://docs.nestjs.com)
+### Technical References
+- [NestJS Documentation](https://docs.nestjs.com) - Backend framework
+- [TypeORM Documentation](https://typeorm.io/) - MariaDB ORM
+- [Mongoose Documentation](https://mongoosejs.com/) - MongoDB ODM
+- [MariaDB Documentation](https://mariadb.com/kb/en/documentation/) - Relational database
+- [MongoDB Documentation](https://www.mongodb.com/docs/) - Document database
+
+### Client-Side References
 - [CSS Selectors Reference](https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Selectors)
 - [Form Data API](https://developer.mozilla.org/en-US/docs/Web/API/FormData)
+- [Fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API)
+- [SendBeacon API](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/sendBeacon)
+
+### Compliance References
 - [GDPR Compliance Guide](https://gdpr.eu/)
+- [CCPA Overview](https://oag.ca.gov/privacy/ccpa)
+
+### Repository
+- GitHub: [gopiduttv/crm-website-embeddings](https://github.com/gopiduttv/crm-website-embeddings)
 
 ---
 

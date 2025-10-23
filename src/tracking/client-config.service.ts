@@ -57,6 +57,15 @@ export class ClientConfigService {
             visibilitychange: false,
           },
           
+          // Batch capture configuration (NEW)
+          batchCapture: {
+            enabled: true,
+            debounceMs: 5000,
+            captureOnVisibilityChange: true,
+            captureOnBeforeUnload: true,
+            minFieldsForCapture: 1,
+          },
+          
           // Performance settings
           debounceMs: 2000,
           batchSize: 10,
@@ -109,6 +118,15 @@ export class ClientConfigService {
             visibilitychange: false,
           },
           
+          // Batch capture configuration
+          batchCapture: {
+            enabled: true,
+            debounceMs: 5000,
+            captureOnVisibilityChange: true,
+            captureOnBeforeUnload: true,
+            minFieldsForCapture: 1,
+          },
+          
           debounceMs: 2000,
           batchSize: 10,
           flushInterval: 5000,
@@ -126,6 +144,70 @@ export class ClientConfigService {
 
     this.clientConfigs.set('tooth-docs-dental', toothDocsConfig);
     this.logger.log('Seeded client configuration for: tooth-docs-dental');
+
+    // Test client for demo purposes
+    const testClientConfig: ClientConfig = {
+      clientId: 'test-client',
+      domain: 'localhost',
+      isActive: true,
+      apiKey: 'sk_test_demo123',
+      widgets: {
+        chat: {
+          enabled: true,
+          position: 'bottom-right',
+          color: '#3A86FF',
+          greeting: 'Hi! This is a test chat widget. How can we help?',
+        },
+        analytics: {
+          enabled: false,
+          trackPageViews: false,
+          trackClicks: false,
+        },
+        forms: {
+          enabled: true,
+          autoCapture: true,
+          captureSelector: 'form',
+          excludeFields: ['password', 'credit_card', 'ssn', 'cvv'],
+          
+          // Field interaction tracking for partial leads
+          trackInteractions: true,
+          trackFields: ['email', 'phone', 'name', 'first_name', 'last_name', 'company', 'message'],
+          
+          // Event triggers
+          triggers: {
+            blur: false,
+            beforeunload: false,
+            change: true,
+            visibilitychange: false,
+          },
+          
+          // Batch capture configuration (enabled for demo)
+          batchCapture: {
+            enabled: true,
+            debounceMs: 5000,  // Shorter for demo purposes
+            captureOnVisibilityChange: true,
+            captureOnBeforeUnload: true,
+            minFieldsForCapture: 3,
+          },
+          
+          // Performance settings
+          debounceMs: 1000,
+          batchSize: 10,
+          flushInterval: 5000,
+        },
+      },
+      theme: {
+        primaryColor: '#3A86FF',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+      },
+      cdnUrl: process.env.CDN_URL || 'http://localhost:5000',
+      apiUrl: process.env.API_URL || 'http://localhost:5000',
+      appVersion: 'v1',
+      debugMode: true,
+    };
+
+    this.clientConfigs.set('test-client', testClientConfig);
+    this.logger.log('Seeded test client configuration: test-client');
   }
 
   /**

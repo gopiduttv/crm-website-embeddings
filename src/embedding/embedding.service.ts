@@ -29,39 +29,47 @@ export class EmbeddingService {
 
   /**
    * Creates the actual JavaScript loader content with client configuration
+   * This implements the bootloader pattern with embedded configuration
    */
   private createLoaderScriptContent(config: ClientConfig): string {
-    // Read the production script template
-    const fs = require('fs');
-    const path = require('path');
-    try {
-      const templatePath = path.join(__dirname, '..', '..', 'public', 'production-tracker.js');
-      if (!fs.existsSync(templatePath)) {
-        this.logger.warn('production-tracker.js template not found, using basic script fallback.');
-        // The basic script is gone, so we must throw an error if the template is missing.
-        throw new Error('Production script template not found.');
-      }
+    // Determine the API URL for the main app script
+    const apiUrl = config.apiUrl || 'http://localhost:5000';
+    const mainAppUrl = `${apiUrl}/main-app.v1.js`;
 
-      let scriptContent = fs.readFileSync(templatePath, 'utf-8');
+    // Generate the bootloader script with embedded configuration
+    return `/**
+ * YourCRM Bootloader Script
+ * Client: ${config.clientId}
+ * Generated: ${new Date().toISOString()}
+ */
+(function() {
+  'use strict';
 
-      // Replace placeholders
-      scriptContent = scriptContent
-        .replace("'{{CLIENT_ID}}'", `'${config.clientId}'`)
-        .replace("'{{SERVER_URL}}'", `'${config.apiUrl}'`)
-        .replace("'{{API_KEY}}'", `'${config.apiKey}'`)
-        // Replace the entire quoted string with the raw JSON object
-        .replace("'{{WIDGETS_CONFIG}}'", JSON.stringify(config.widgets || {}))
-        .replace("'{{THEME_CONFIG}}'", JSON.stringify(config.theme || {}))
-        // Replace the entire quoted string with the raw boolean
-        .replace("'{{DEBUG_MODE}}'", String(config.debugMode || false));
+  // 1. Create the command queue placeholder
+  window.YourCRM = window.YourCRM || function() {
+    (window.YourCRM.q = window.YourCRM.q || []).push(arguments);
+  };
 
-      return scriptContent;
-    } catch (error) {
-      this.logger.error('Failed to create loader script from template', error);
-      // If the template fails, we no longer have a fallback.
-      // This is a critical error.
-      throw new InternalServerErrorException('Failed to generate tracking script.');
-    }
+  // 2. Inject the client's specific configuration (embedded - no API call needed!)
+  window.YourCRM('init', {
+    clientId: '${config.clientId}',
+    apiKey: '${config.apiKey}',
+    apiUrl: '${apiUrl}',
+    widgets: ${JSON.stringify(config.widgets || {}, null, 2).split('\n').join('\n    ')},
+    theme: ${JSON.stringify(config.theme || {}, null, 2).split('\n').join('\n    ')},
+    debugMode: ${config.debugMode || false}
+  });
+
+  // 3. Load the main application script
+  var script = document.createElement('script');
+  script.src = '${mainAppUrl}';
+  script.async = true;
+  script.onerror = function() {
+    console.error('[YourCRM] Failed to load tracking script from ${mainAppUrl}');
+  };
+  document.head.appendChild(script);
+})();
+`;
   }
 
   /**
@@ -70,10 +78,12 @@ export class EmbeddingService {
    */
   async generateEmbedSnippet(clientId: string): Promise<string> {
     // Verify client exists
-    await this.clientConfigService.getClientConfig(clientId);
-
-    // Return the embed snippet
-    const scriptUrl = `https://api.yourcrm.com/script/${clientId}.js`;
+    const config = await this.clientConfigService.getClientConfig(clientId);
+    
+    // Use the actual API URL from config
+    const apiUrl = config.apiUrl || 'http://localhost:5000';
+    const scriptUrl = `${apiUrl}/script/${clientId}.js`;
+    
     return `<script src="${scriptUrl}" async defer></script>`;
   }
 }

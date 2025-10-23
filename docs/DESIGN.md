@@ -30,35 +30,59 @@
 │                      Client Website                          │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │  <script src="/script/{clientId}.js">                  │ │
-│  │  ↓ Loads production-tracker.js                         │ │
-│  │  ↓ Attaches form listeners                             │ │
+│  │  ↓ Loads main-app.v1.js (bootloader)                   │ │
+│  │  ↓ Fetches config from /v1/config/:apiKey              │ │
+│  │  ↓ Attaches form listeners dynamically                 │ │
 │  │  ↓ Tracks lead-generating events                       │ │
 │  └────────────────────────────────────────────────────────┘ │
 └───────────────────────────┬─────────────────────────────────┘
-                            │ POST /v1/track (events)
+                            │ GET /v1/config/:apiKey
+                            │ POST /v1/track/events (batch)
                             │ GET /script/{clientId}.js
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                    CRM Web Tracker API                       │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐   │
-│  │   NestJS     │  │  Tracking    │  │  Lead Creation  │   │
-│  │  App Server  │→ │  Service     │→ │    Service      │   │
-│  └──────────────┘  └──────────────┘  └─────────────────┘   │
-│         ↓                                      ↓              │
-│  ┌──────────────┐                     ┌─────────────────┐   │
-│  │  PostgreSQL  │                     │   CRM API       │   │
-│  │   Database   │                     │  (Salesforce)   │   │
-│  └──────────────┘                     └─────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
+│                    CRM Web Tracker API (NestJS)              │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │              Embedding Module                        │   │
+│  │  - Script generation (bootloader)                    │   │
+│  │  - Loader scripts with config injection             │   │
+│  │  - Static assets (demo, example pages)              │   │
+│  └───────────────────────┬──────────────────────────────┘   │
+│                          │                                   │
+│  ┌──────────────────────▼──────────────────────────────┐   │
+│  │              Tracking Module                         │   │
+│  │  - Event ingestion & validation                      │   │
+│  │  - Batch event processing                            │   │
+│  │  - Lead creation & enrichment                        │   │
+│  └───────────────────────┬──────────────────────────────┘   │
+│                          │                                   │
+│  ┌──────────────────────▼──────────────────────────────┐   │
+│  │          Client Config Service (Shared)              │   │
+│  │  - Configuration management                          │   │
+│  │  - API key validation                                │   │
+│  │  - Feature flags                                     │   │
+│  └───────────┬─────────────────┬────────────────────────┘   │
+└──────────────┼─────────────────┼─────────────────────────────┘
+               │                 │
+               ▼                 ▼
+     ┌──────────────┐   ┌──────────────┐   ┌─────────────────┐
+     │   MariaDB    │   │   MongoDB    │   │   CRM API       │
+     │              │   │              │   │  (Salesforce)   │
+     │ • Clients    │   │ • Events     │   │                 │
+     │ • Forms      │   │ • Leads      │   │ • Contact sync  │
+     │ • Fields     │   │ • Sessions   │   │ • Lead creation │
+     │ • Mappings   │   │ • Analytics  │   │                 │
+     └──────────────┘   └──────────────┘   └─────────────────┘
                             │
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                         CDN                                  │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  production-tracker.js (static, cached)                │ │
-│  │  main-app.v1.js (legacy)                               │ │
-│  └────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+                            ▼
+                   ┌─────────────────┐
+                   │  Message Queue  │
+                   │  (RabbitMQ/SQS) │
+                   │                 │
+                   │ • Event batches │
+                   │ • Lead webhooks │
+                   │ • CRM sync jobs │
+                   └─────────────────┘
 ```
 
 ### 1.2 Design Principles
@@ -73,15 +97,23 @@
 
 **Backend**:
 - **Framework**: NestJS (TypeScript)
-- **Database**: PostgreSQL 14+
-- **ORM**: TypeORM
+- **Relational Database**: MariaDB 10.11+ (for client configs, forms, fields)
+- **Document Database**: MongoDB 6.0+ (for events, tracking data)
+- **ORM**: TypeORM (MariaDB) + Mongoose (MongoDB)
 - **Authentication**: JWT + API Keys
 - **Cache**: Redis (optional, for rate limiting)
+- **Message Queue**: RabbitMQ / AWS SQS (for event processing)
+
+**Module Architecture**:
+- **Tracking Module**: Event tracking, batch processing, lead capture
+- **Embedding Module**: Script generation, loader scripts, static assets
+- **Client Config Module**: Configuration management (shared service)
 
 **Frontend (Client SDK)**:
 - **Language**: Vanilla JavaScript (ES6+)
-- **Build**: Webpack + Babel
-- **Size**: < 50KB minified + gzipped
+- **Build**: None (pure ES6, no bundler needed)
+- **Size**: < 30KB minified + gzipped
+- **Pattern**: Bootloader (fetches config dynamically)
 
 **Infrastructure**:
 - **Hosting**: AWS / GCP / Azure
@@ -95,209 +127,410 @@
 
 ### 2.1 Entity Relationship Diagram
 
+**MariaDB (Configuration Data)**
 ```
 ┌─────────────────────────────────────────────────────┐
-│ Client (Site)                                       │
+│ Client (Site) - MariaDB                             │
 │ ─────────────────────────────────────────────────  │
-│ PK: clientId (string, UUID)                         │
-│     domain (string, unique)                         │
-│     apiKey (string, hashed)                         │
-│     isActive (boolean, default: true)               │
-│     config (jsonb) - widget settings                │
-│     createdAt (timestamp)                           │
-│     updatedAt (timestamp)                           │
+│ PK: clientId (CHAR(36))                             │
+│     domain (VARCHAR(255), unique)                   │
+│     apiKey (VARCHAR(255))                           │
+│     isActive (BOOLEAN, default: true)               │
+│     config (JSON) - widget settings                 │
+│     createdAt (TIMESTAMP)                           │
+│     updatedAt (TIMESTAMP)                           │
 └──────────────────┬──────────────────────────────────┘
                    │
                    │ 1:N (One client has many forms)
                    │
 ┌──────────────────▼──────────────────────────────────┐
-│ Form                                                │
+│ Form - MariaDB                                      │
 │ ─────────────────────────────────────────────────  │
-│ PK: formId (string, UUID)                           │
+│ PK: formId (CHAR(36))                               │
 │ FK: clientId → Client.clientId (CASCADE)            │
-│     formName (string)                               │
-│     pageUrl (string)                                │
-│     formSelector (string) - CSS selector            │
-│     alternativeSelectors (jsonb array)              │
-│     isActive (boolean, default: true)               │
-│     metadata (jsonb) - form config                  │
-│     createdAt (timestamp)                           │
-│     updatedAt (timestamp)                           │
+│     formName (VARCHAR(255))                         │
+│     pageUrl (TEXT)                                  │
+│     formSelector (VARCHAR(500))                     │
+│     alternativeSelectors (JSON array)               │
+│     isActive (BOOLEAN, default: true)               │
+│     metadata (JSON)                                 │
+│     createdAt (TIMESTAMP)                           │
+│     updatedAt (TIMESTAMP)                           │
 └──────────────────┬──────────────────────────────────┘
                    │
                    │ 1:N (One form has many fields)
                    │
 ┌──────────────────▼──────────────────────────────────┐
-│ Field                                               │
+│ Field - MariaDB                                     │
 │ ─────────────────────────────────────────────────  │
-│ PK: fieldId (string, UUID)                          │
+│ PK: fieldId (CHAR(36))                              │
 │ FK: formId → Form.formId (CASCADE)                  │
-│     fieldSelector (string) - CSS selector           │
-│     fieldName (string)                              │
-│     fieldType (enum) - email, text, phone, etc.     │
-│     label (string)                                  │
-│     isRequired (boolean, default: false)            │
-│     validationRules (jsonb) - regex, etc.           │
-│     order (integer) - display order                 │
-│     createdAt (timestamp)                           │
-│     updatedAt (timestamp)                           │
+│     fieldSelector (VARCHAR(500))                    │
+│     fieldName (VARCHAR(255))                        │
+│     fieldType (VARCHAR(50))                         │
+│     label (VARCHAR(255))                            │
+│     isRequired (BOOLEAN, default: false)            │
+│     validationRules (JSON)                          │
+│     displayOrder (INT, default: 0)                  │
+│     createdAt (TIMESTAMP)                           │
+│     updatedAt (TIMESTAMP)                           │
 └──────────────────┬──────────────────────────────────┘
                    │
                    │ 1:1 (One field has one CRM mapping)
                    │
 ┌──────────────────▼──────────────────────────────────┐
-│ FieldMapping                                        │
+│ FieldMapping - MariaDB                              │
 │ ─────────────────────────────────────────────────  │
-│ PK: mappingId (string, UUID)                        │
+│ PK: mappingId (CHAR(36))                            │
 │ FK: fieldId → Field.fieldId (CASCADE)               │
-│     targetEntity (string) - "Contact", "Lead", etc. │
-│     targetField (string) - "Email", "FirstName"     │
-│     transform (string) - "splitName", "lowercase"   │
-│     isRequired (boolean)                            │
-│     createdAt (timestamp)                           │
-│     updatedAt (timestamp)                           │
-└─────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────┐
-│ Event (Tracked Lead Events)                         │
-│ ─────────────────────────────────────────────────  │
-│ PK: eventId (string, UUID)                          │
-│ FK: clientId → Client.clientId (SET NULL)           │
-│ FK: formId → Form.formId (SET NULL)                 │
-│ FK: leadId → Lead.leadId (CASCADE)                  │
-│     eventType (enum) - form_submission, etc.        │
-│     sessionId (string)                              │
-│     visitorId (string)                              │
-│     payload (jsonb) - complete event data           │
-│     metadata (jsonb) - page, user agent, etc.       │
-│     timestamp (timestamp, indexed)                  │
-│     createdAt (timestamp)                           │
-└─────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────┐
-│ Lead (Generated Leads)                              │
-│ ─────────────────────────────────────────────────  │
-│ PK: leadId (string, UUID)                           │
-│ FK: clientId → Client.clientId (CASCADE)            │
-│ FK: formId → Form.formId (SET NULL)                 │
-│     email (string, indexed)                         │
-│     name (string)                                   │
-│     firstName (string)                              │
-│     lastName (string)                               │
-│     phone (string)                                  │
-│     company (string)                                │
-│     message (text)                                  │
-│     status (enum) - submitted, partial, chat_inquiry│
-│     quality (enum) - high, medium, low              │
-│     source (string) - form_submission, etc.         │
-│     sessionId (string, indexed)                     │
-│     visitorId (string, indexed)                     │
-│     metadata (jsonb) - utm params, referrer, etc.   │
-│     submittedAt (timestamp)                         │
-│     lastInteractionAt (timestamp)                   │
-│     crmSyncedAt (timestamp, nullable)               │
-│     crmId (string, nullable) - external CRM ID      │
-│     createdAt (timestamp, indexed)                  │
-│     updatedAt (timestamp)                           │
+│     targetEntity (VARCHAR(100))                     │
+│     targetField (VARCHAR(100))                      │
+│     transform (VARCHAR(100))                        │
+│     isRequired (BOOLEAN)                            │
+│     createdAt (TIMESTAMP)                           │
+│     updatedAt (TIMESTAMP)                           │
 └─────────────────────────────────────────────────────┘
 ```
 
-### 2.2 Database Schema (PostgreSQL)
+**MongoDB (Event & Lead Data)**
+```
+┌─────────────────────────────────────────────────────┐
+│ Event Collection - MongoDB                          │
+│ ─────────────────────────────────────────────────  │
+│ _id: ObjectId                                       │
+│ eventId: UUID                                       │
+│ clientId: UUID (references MariaDB)                 │
+│ formId: UUID (optional, references MariaDB)         │
+│ eventType: String (form_submission, pageview, etc.) │
+│ payload: Object (flexible schema)                   │
+│   - form: Object (form submission data)             │
+│   - page: Object (page context)                     │
+│ sessionId: String                                   │
+│ visitorId: String                                   │
+│ userAgent: String                                   │
+│ ipAddress: String (anonymized)                      │
+│ geo: Object (country, region, city)                 │
+│ timestamp: ISODate                                  │
+│ createdAt: ISODate                                  │
+│                                                     │
+│ Indexes:                                            │
+│  - { clientId: 1, timestamp: -1 }                   │
+│  - { eventType: 1, timestamp: -1 }                  │
+│  - { sessionId: 1 }                                 │
+│  - { visitorId: 1 }                                 │
+│  - { "payload.form.fields.email": 1 }               │
+│  - TTL: 90 days on createdAt                        │
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
+│ Lead Collection - MongoDB                           │
+│ ─────────────────────────────────────────────────  │
+│ _id: ObjectId                                       │
+│ leadId: UUID                                        │
+│ clientId: UUID (references MariaDB)                 │
+│ formId: UUID (optional, references MariaDB)         │
+│ email: String (indexed)                             │
+│ name: String                                        │
+│ firstName: String                                   │
+│ lastName: String                                    │
+│ phone: String                                       │
+│ company: String                                     │
+│ message: String                                     │
+│ status: String (submitted, partial, chat_inquiry)   │
+│ quality: String (high, medium, low)                 │
+│ source: String (form_submission, chat, etc.)        │
+│ sessionId: String                                   │
+│ visitorId: String                                   │
+│ utmSource: String                                   │
+│ utmMedium: String                                   │
+│ utmCampaign: String                                 │
+│ referrer: String                                    │
+│ crmSynced: Boolean                                  │
+│ crmSyncedAt: ISODate (nullable)                     │
+│ crmId: String (nullable)                            │
+│ submittedAt: ISODate                                │
+│ lastInteractionAt: ISODate                          │
+│ createdAt: ISODate                                  │
+│ updatedAt: ISODate                                  │
+│                                                     │
+│ Indexes:                                            │
+│  - { clientId: 1, createdAt: -1 }                   │
+│  - { email: 1 }                                     │
+│  - { status: 1, createdAt: -1 }                     │
+│  - { quality: 1 }                                   │
+│  - { visitorId: 1 }                                 │
+│  - { crmSynced: 1, crmSyncedAt: 1 }                 │
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
+│ Session Collection - MongoDB                        │
+│ ─────────────────────────────────────────────────  │
+│ _id: ObjectId                                       │
+│ sessionId: UUID (unique)                            │
+│ clientId: UUID (references MariaDB)                 │
+│ visitorId: UUID                                     │
+│ startedAt: ISODate                                  │
+│ endedAt: ISODate                                    │
+│ duration: Number (seconds)                          │
+│ pageViews: Array[Object]                            │
+│ eventCount: Number                                  │
+│ formSubmissions: Number                             │
+│ utmParams: Object                                   │
+│ referrer: String                                    │
+│ landingPage: String                                 │
+│ device: String                                      │
+│ browser: String                                     │
+│ os: String                                          │
+│ geo: Object                                         │
+│ createdAt: ISODate                                  │
+│ updatedAt: ISODate                                  │
+│                                                     │
+│ Indexes:                                            │
+│  - { clientId: 1, startedAt: -1 }                   │
+│  - { visitorId: 1 }                                 │
+│  - { sessionId: 1 } (unique)                        │
+│  - TTL: 90 days on createdAt                        │
+└─────────────────────────────────────────────────────┘
+```
+
+### 2.2 Database Architecture
+
+**MariaDB**: Relational data (client configs, forms, fields, mappings)
+**MongoDB**: Unstructured data (events, leads, sessions, analytics)
+
+This hybrid approach provides:
+- ✅ ACID compliance for critical configuration data
+- ✅ Flexible schema for event data (varies by client)
+- ✅ High write throughput for tracking events
+- ✅ Efficient querying for both structured and unstructured data
+
+### 2.3 MariaDB Schema (Configuration Data)
 
 ```sql
 -- Clients Table
 CREATE TABLE clients (
-  client_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id CHAR(36) PRIMARY KEY,
   domain VARCHAR(255) UNIQUE NOT NULL,
   api_key VARCHAR(255) NOT NULL,
   is_active BOOLEAN DEFAULT true,
-  config JSONB DEFAULT '{}',
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX idx_clients_domain ON clients(domain);
-CREATE INDEX idx_clients_api_key ON clients(api_key);
+  config JSON DEFAULT '{}',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_clients_domain (domain),
+  INDEX idx_clients_api_key (api_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Forms Table
 CREATE TABLE forms (
-  form_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_id UUID NOT NULL REFERENCES clients(client_id) ON DELETE CASCADE,
+  form_id CHAR(36) PRIMARY KEY,
+  client_id CHAR(36) NOT NULL,
   form_name VARCHAR(255) NOT NULL,
   page_url TEXT NOT NULL,
   form_selector VARCHAR(500) NOT NULL,
-  alternative_selectors JSONB DEFAULT '[]',
+  alternative_selectors JSON DEFAULT '[]',
   is_active BOOLEAN DEFAULT true,
-  metadata JSONB DEFAULT '{}',
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX idx_forms_client_id ON forms(client_id);
-CREATE INDEX idx_forms_page_url ON forms(page_url);
+  metadata JSON DEFAULT '{}',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (client_id) REFERENCES clients(client_id) ON DELETE CASCADE,
+  INDEX idx_forms_client_id (client_id),
+  INDEX idx_forms_page_url (page_url(255))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Fields Table
 CREATE TABLE fields (
-  field_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  form_id UUID NOT NULL REFERENCES forms(form_id) ON DELETE CASCADE,
+  field_id CHAR(36) PRIMARY KEY,
+  form_id CHAR(36) NOT NULL,
   field_selector VARCHAR(500) NOT NULL,
   field_name VARCHAR(255) NOT NULL,
   field_type VARCHAR(50) NOT NULL,
   label VARCHAR(255),
   is_required BOOLEAN DEFAULT false,
-  validation_rules JSONB DEFAULT '{}',
-  "order" INTEGER DEFAULT 0,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX idx_fields_form_id ON fields(form_id);
+  validation_rules JSON DEFAULT '{}',
+  display_order INT DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (form_id) REFERENCES forms(form_id) ON DELETE CASCADE,
+  INDEX idx_fields_form_id (form_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Field Mappings Table
 CREATE TABLE field_mappings (
-  mapping_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  field_id UUID NOT NULL REFERENCES fields(field_id) ON DELETE CASCADE,
+  mapping_id CHAR(36) PRIMARY KEY,
+  field_id CHAR(36) NOT NULL,
   target_entity VARCHAR(100) NOT NULL,
   target_field VARCHAR(100) NOT NULL,
   transform VARCHAR(100),
   is_required BOOLEAN DEFAULT false,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE(field_id)
-);
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (field_id) REFERENCES fields(field_id) ON DELETE CASCADE,
+  UNIQUE KEY unique_field_mapping (field_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
 
--- Leads Table
-CREATE TABLE leads (
-  lead_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_id UUID NOT NULL REFERENCES clients(client_id) ON DELETE CASCADE,
-  form_id UUID REFERENCES forms(form_id) ON DELETE SET NULL,
-  email VARCHAR(255) NOT NULL,
-  name VARCHAR(255),
-  first_name VARCHAR(255),
-  last_name VARCHAR(255),
-  phone VARCHAR(50),
-  company VARCHAR(255),
-  message TEXT,
-  status VARCHAR(50) NOT NULL,
-  quality VARCHAR(20) NOT NULL,
-  source VARCHAR(100) NOT NULL,
-  session_id VARCHAR(255),
-  visitor_id VARCHAR(255),
-  metadata JSONB DEFAULT '{}',
-  submitted_at TIMESTAMP,
-  last_interaction_at TIMESTAMP,
-  crm_synced_at TIMESTAMP,
-  crm_id VARCHAR(255),
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
+### 2.4 MongoDB Schema (Event & Lead Data)
 
-CREATE INDEX idx_leads_client_id ON leads(client_id);
-CREATE INDEX idx_leads_email ON leads(email);
-CREATE INDEX idx_leads_status ON leads(status);
-CREATE INDEX idx_leads_quality ON leads(quality);
-CREATE INDEX idx_leads_visitor_id ON leads(visitor_id);
-CREATE INDEX idx_leads_created_at ON leads(created_at);
+```javascript
+// Events Collection - High-volume tracking data
+{
+  _id: ObjectId("..."),
+  eventId: "uuid-v4",
+  clientId: "client-uuid",
+  formId: "form-uuid",  // Optional
+  eventType: "form_submission" | "pageview" | "identify" | "custom",
+  
+  // Event payload
+  payload: {
+    form: {
+      formId: "contact-form",
+      formName: "Contact Us",
+      fields: {
+        email: "user@example.com",
+        name: "John Doe",
+        message: "I'm interested..."
+      }
+    },
+    page: {
+      url: "https://example.com/contact",
+      path: "/contact",
+      title: "Contact Us",
+      referrer: "https://google.com"
+    }
+  },
+  
+  // Session & visitor tracking
+  sessionId: "session-uuid",
+  visitorId: "visitor-uuid",
+  
+  // Request metadata
+  userAgent: "Mozilla/5.0...",
+  ipAddress: "192.168.1.1",  // Anonymized
+  geo: {
+    country: "US",
+    region: "CA",
+    city: "San Francisco"
+  },
+  
+  // Timestamps
+  timestamp: ISODate("2025-10-22T10:30:00Z"),
+  createdAt: ISODate("2025-10-22T10:30:00Z")
+}
+
+// Indexes for Events
+db.events.createIndex({ clientId: 1, timestamp: -1 });
+db.events.createIndex({ eventType: 1, timestamp: -1 });
+db.events.createIndex({ sessionId: 1 });
+db.events.createIndex({ visitorId: 1 });
+db.events.createIndex({ "payload.form.fields.email": 1 });
+db.events.createIndex({ createdAt: 1 }, { expireAfterSeconds: 7776000 }); // 90 days TTL
+
+// Leads Collection - Processed lead data
+{
+  _id: ObjectId("..."),
+  leadId: "lead-uuid",
+  clientId: "client-uuid",
+  formId: "form-uuid",
+  
+  // Lead information
+  email: "user@example.com",
+  name: "John Doe",
+  firstName: "John",
+  lastName: "Doe",
+  phone: "+1-555-0123",
+  company: "Acme Corp",
+  message: "I'm interested in your services",
+  
+  // Lead metadata
+  status: "submitted" | "partial" | "chat_inquiry",
+  quality: "high" | "medium" | "low",
+  source: "form_submission" | "chat" | "abandoned_form",
+  
+  // Tracking data
+  sessionId: "session-uuid",
+  visitorId: "visitor-uuid",
+  
+  // Enrichment data
+  utmSource: "google",
+  utmMedium: "cpc",
+  utmCampaign: "spring-2025",
+  referrer: "https://google.com",
+  landingPage: "https://example.com",
+  
+  // CRM sync status
+  crmSynced: false,
+  crmSyncedAt: null,
+  crmId: null,
+  crmErrors: [],
+  
+  // Timestamps
+  submittedAt: ISODate("2025-10-22T10:30:00Z"),
+  lastInteractionAt: ISODate("2025-10-22T10:35:00Z"),
+  createdAt: ISODate("2025-10-22T10:30:00Z"),
+  updatedAt: ISODate("2025-10-22T10:30:00Z")
+}
+
+// Indexes for Leads
+db.leads.createIndex({ clientId: 1, createdAt: -1 });
+db.leads.createIndex({ email: 1 });
+db.leads.createIndex({ status: 1, createdAt: -1 });
+db.leads.createIndex({ quality: 1 });
+db.leads.createIndex({ visitorId: 1 });
+db.leads.createIndex({ crmSynced: 1, crmSyncedAt: 1 });
+db.leads.createIndex({ sessionId: 1 });
+
+// Sessions Collection - User session tracking
+{
+  _id: ObjectId("..."),
+  sessionId: "session-uuid",
+  clientId: "client-uuid",
+  visitorId: "visitor-uuid",
+  
+  // Session data
+  startedAt: ISODate("2025-10-22T10:00:00Z"),
+  endedAt: ISODate("2025-10-22T10:45:00Z"),
+  duration: 2700, // seconds
+  
+  // Page views
+  pageViews: [
+    { url: "/", timestamp: ISODate("...") },
+    { url: "/products", timestamp: ISODate("...") },
+    { url: "/contact", timestamp: ISODate("...") }
+  ],
+  
+  // Events in session
+  eventCount: 15,
+  formSubmissions: 1,
+  
+  // Attribution
+  utmParams: {
+    source: "google",
+    medium: "cpc",
+    campaign: "spring-2025"
+  },
+  referrer: "https://google.com",
+  landingPage: "https://example.com",
+  
+  // Device & location
+  userAgent: "Mozilla/5.0...",
+  device: "desktop",
+  browser: "Chrome",
+  os: "Windows",
+  geo: {
+    country: "US",
+    region: "CA",
+    city: "San Francisco"
+  },
+  
+  createdAt: ISODate("2025-10-22T10:00:00Z"),
+  updatedAt: ISODate("2025-10-22T10:45:00Z")
+}
+
+// Indexes for Sessions
+db.sessions.createIndex({ clientId: 1, startedAt: -1 });
+db.sessions.createIndex({ visitorId: 1 });
+db.sessions.createIndex({ sessionId: 1 }, { unique: true });
+db.sessions.createIndex({ createdAt: 1 }, { expireAfterSeconds: 7776000 }); // 90 days TTL
 
 -- Events Table
 CREATE TABLE events (
@@ -384,44 +617,46 @@ WHERE client_id = $1
 
 ### 3.1 Application Server (NestJS)
 
+**Module Architecture**:
+
+The application is organized into two primary functional modules:
+
+1. **Tracking Module**: Handles event ingestion, batch processing, and lead creation
+2. **Embedding Module**: Manages script generation, loader scripts, and static asset serving
+
 **Directory Structure**:
 ```
 src/
-├── app.module.ts
-├── main.ts
-├── clients/
-│   ├── clients.controller.ts
-│   ├── clients.service.ts
-│   ├── clients.module.ts
-│   └── entities/
-│       └── client.entity.ts
-├── forms/
-│   ├── forms.controller.ts
-│   ├── forms.service.ts
-│   ├── forms.module.ts
-│   └── entities/
-│       ├── form.entity.ts
-│       ├── field.entity.ts
-│       └── field-mapping.entity.ts
-├── tracking/
-│   ├── tracking.controller.ts
-│   ├── tracking.service.ts
-│   ├── tracking.module.ts
+├── app.module.ts              # Root module - imports TrackingModule & EmbeddingModule
+├── main.ts                    # Application bootstrap with Swagger docs
+├── tracking/                  # Tracking Module - Event processing & lead management
+│   ├── tracking.controller.ts      # POST /v1/track/events (batch event ingestion)
+│   ├── tracking.service.ts         # Event routing, validation, batch processing
+│   ├── tracking.module.ts          # Module definition, exports services
+│   ├── client-config.controller.ts # GET /v1/config/:apiKey, CRUD for clients
+│   ├── client-config.service.ts    # Client configuration management (MariaDB)
+│   ├── lead-creation.service.ts    # Lead processing from form submissions
+│   ├── dto/
+│   │   ├── track-events.dto.ts     # Batch event payload
+│   │   ├── form-submission.dto.ts  # Form submission event
+│   │   └── form-interaction.dto.ts # Form interaction event
+│   ├── entities/                   # TypeORM entities for MariaDB
+│   │   ├── client.entity.ts        # Client configuration
+│   │   ├── form.entity.ts          # Form definitions
+│   │   ├── field.entity.ts         # Field definitions
+│   │   └── field-mapping.entity.ts # CRM field mappings
+│   └── schemas/                    # Mongoose schemas for MongoDB
+│       ├── event.schema.ts         # Event documents
+│       ├── lead.schema.ts          # Lead documents
+│       └── session.schema.ts       # Session documents
+├── embedding/                 # Embedding Module - Script generation & serving
+│   ├── embedding.controller.ts     # Script & Assets controllers
+│   │   ├── ScriptController:       # GET /script/:clientId.js, /script/:clientId/embed
+│   │   └── AssetsController:       # GET /main-app.:version.js, /demo, /example
+│   ├── embedding.service.ts        # Script generation with bootloader pattern
+│   ├── embedding.module.ts         # Module definition, imports TrackingModule
 │   └── dto/
-│       ├── form-submission.dto.ts
-│       └── form-interaction.dto.ts
-├── leads/
-│   ├── leads.controller.ts
-│   ├── leads.service.ts
-│   ├── leads.module.ts
-│   ├── lead-creation.service.ts
-│   └── entities/
-│       ├── lead.entity.ts
-│       └── event.entity.ts
-├── script/
-│   ├── script.controller.ts
-│   ├── script.service.ts
-│   └── script.module.ts
+│       └── embed-config.dto.ts     # Embed snippet configuration
 └── common/
     ├── guards/
     │   └── api-key.guard.ts
@@ -431,42 +666,118 @@ src/
         └── http-exception.filter.ts
 ```
 
-### 3.2 Script Service (Dynamic Script Generation)
+**Module Separation Rationale**:
+
+- **Tracking Module**: Focuses on high-throughput event ingestion, batch processing, and lead creation. Uses MongoDB for storing events/leads (write-heavy) and MariaDB for client config lookup (read-heavy).
+
+- **Embedding Module**: Handles script generation and serving, which is primarily read-heavy with occasional updates. Depends on TrackingModule's ClientConfigService for config data.
+
+- **Data Layer**: TrackingModule uses TypeORM for MariaDB (clients, forms, fields) and Mongoose for MongoDB (events, leads, sessions), providing optimal performance for different data access patterns.
+
+### 3.2 Embedding Service (Dynamic Script Generation with Bootloader Pattern)
+
+The Embedding Module uses a **bootloader pattern** where the client-side script dynamically fetches its configuration from the server, eliminating the need for server-side script generation with placeholders.
+
+**Architecture**:
+
+1. **Loader Script**: Minimal script that bootstraps the tracker
+2. **Main Script**: Full tracking implementation fetched after loader runs
+3. **Dynamic Config**: Configuration fetched via API at runtime
 
 ```typescript
-// script.service.ts
+// embedding.service.ts
 @Injectable()
-export class ScriptService {
-  async generateScript(clientId: string): Promise<string> {
-    // 1. Fetch client config + forms + fields
-    const client = await this.clientsService.getClientConfig(clientId);
+export class EmbeddingService {
+  constructor(
+    private clientConfigService: ClientConfigService, // From TrackingModule
+  ) {}
+
+  /**
+   * Generate loader script snippet for embedding
+   * This is a small script that loads the main tracker
+   */
+  async generateLoaderScript(clientId: string): Promise<string> {
+    const client = await this.clientConfigService.findOne(clientId);
     
     if (!client || !client.isActive) {
       throw new NotFoundException('Client not found');
     }
 
-    // 2. Read base tracker script
-    const baseScript = await fs.readFile(
-      './public/production-tracker.js',
-      'utf-8'
-    );
+    return this.createLoaderScriptContent(client);
+  }
 
-    // 3. Replace placeholders with client config
-    const script = baseScript
-      .replace('{{CLIENT_ID}}', client.clientId)
-      .replace('{{SERVER_URL}}', process.env.SERVER_URL)
-      .replace('{{API_KEY}}', client.apiKey)
-      .replace('{{WIDGETS_CONFIG}}', JSON.stringify(client.config.widgets))
-      .replace('{{THEME_CONFIG}}', JSON.stringify(client.config.theme))
-      .replace('{{DEBUG_MODE}}', client.config.debug || false);
+  /**
+   * Create the loader script content
+   * This script:
+   * 1. Fetches config from /v1/config/:apiKey
+   * 2. Loads main-app.v1.js
+   * 3. Initializes tracker with config
+   */
+  private createLoaderScriptContent(config: ClientConfig): string {
+    const { apiKey, apiUrl } = config;
+    
+    return `
+(function() {
+  window.WebsiteTrackerConfig = {
+    apiKey: '${apiKey}',
+    apiUrl: '${apiUrl}',
+    version: 'v1'
+  };
+  
+  var script = document.createElement('script');
+  script.src = '${apiUrl}/main-app.v1.js';
+  script.async = true;
+  document.head.appendChild(script);
+})();
+`.trim();
+  }
 
-    // 4. Return script with cache headers
-    return script;
+  /**
+   * Generate HTML embed snippet
+   */
+  async generateEmbedSnippet(clientId: string): Promise<string> {
+    const loaderScript = await this.generateLoaderScript(clientId);
+    
+    return `<!-- Website Tracker by CRM Web Tracker -->
+<script>
+${loaderScript}
+</script>`;
   }
 }
 ```
 
-### 3.3 Tracking Service (Event Processing)
+**Bootloader Flow**:
+
+```
+1. Client Page Loads
+   ↓
+2. Loader Script Executes (inline)
+   - Sets window.WebsiteTrackerConfig with apiKey & apiUrl
+   - Injects main-app.v1.js script tag
+   ↓
+3. Main Script Loads (main-app.v1.js)
+   - Reads config from window.WebsiteTrackerConfig
+   - Fetches full config from GET /v1/config/:apiKey
+   ↓
+4. Tracker Initializes
+   - Sets up event listeners
+   - Configures tracking features (forms, chat, sessions)
+   - Begins sending events to POST /v1/track/events
+```
+
+**Benefits**:
+
+- **No server-side rendering**: Main script is static and cacheable
+- **Dynamic configuration**: Config changes apply immediately without script regeneration
+- **Faster delivery**: CDN can cache main-app.v1.js globally
+- **Version control**: Easy to roll out script updates by changing version
+- **Simplified architecture**: No need for per-client script generation
+
+### 3.3 Tracking Service (Batch Event Processing with MongoDB)
+
+The Tracking Service handles high-volume event ingestion using a **batch processing pattern** with MongoDB for optimal write performance.
+
+**Batch Event Processing**:
 
 ```typescript
 // tracking.service.ts
@@ -474,73 +785,215 @@ export class ScriptService {
 export class TrackingService {
   constructor(
     private leadCreationService: LeadCreationService,
-    private eventsRepository: Repository<Event>,
+    @InjectModel('Event') private eventModel: Model<EventDocument>,
+    @InjectModel('Session') private sessionModel: Model<SessionDocument>,
+    private clientConfigService: ClientConfigService,
+    private queueService: QueueService,
   ) {}
 
-  async trackEvent(dto: TrackEventDto): Promise<{ success: boolean }> {
-    // 1. Validate API key
-    const client = await this.validateApiKey(dto.apiKey);
+  /**
+   * Handle batch event submission from client
+   * POST /v1/track/events
+   */
+  async queueEvents(dto: TrackEventsDto): Promise<{ success: boolean; queued: number }> {
+    // 1. Validate API key (cached lookup in MariaDB)
+    const client = await this.clientConfigService.validateApiKey(dto.apiKey);
     
-    // 2. Route to appropriate handler
-    switch (dto.type) {
-      case 'form_submission':
-        return this.handleFormSubmission(client, dto);
-      case 'form_interaction':
-        return this.handleFormInteraction(client, dto);
-      case 'chat_message_sent':
-        return this.handleChatMessage(client, dto);
-      case 'tracker_initialized':
-        return this.handleTrackerInit(client, dto);
-      default:
-        throw new BadRequestException('Unknown event type');
+    if (!client || !client.isActive) {
+      throw new UnauthorizedException('Invalid API key');
+    }
+
+    // 2. Queue events for async processing
+    const events = dto.events.map(event => ({
+      ...event,
+      clientId: client.clientId,
+      receivedAt: new Date(),
+    }));
+
+    // 3. Add to processing queue (RabbitMQ/SQS)
+    await this.queueService.addBatch('event-processing', events);
+
+    return { 
+      success: true, 
+      queued: events.length 
+    };
+  }
+
+  /**
+   * Process individual event (called by queue worker)
+   */
+  async processEvent(event: QueuedEvent): Promise<void> {
+    try {
+      // Route to appropriate handler based on event type
+      switch (event.type) {
+        case 'form_submission':
+          await this.handleFormSubmission(event);
+          break;
+        case 'form_interaction':
+          await this.handleFormInteraction(event);
+          break;
+        case 'page_view':
+          await this.handlePageView(event);
+          break;
+        case 'session_start':
+          await this.handleSessionStart(event);
+          break;
+        case 'chat_message':
+          await this.handleChatMessage(event);
+          break;
+        default:
+          await this.handleGenericEvent(event);
+      }
+    } catch (error) {
+      // Log error and optionally move to DLQ
+      console.error(`Failed to process event ${event.id}:`, error);
+      throw error;
     }
   }
 
-  private async handleFormSubmission(
-    client: Client,
-    dto: FormSubmissionDto,
-  ): Promise<{ success: boolean }> {
-    // 1. Create lead
+  /**
+   * Handle form submission - Create lead and store event
+   */
+  private async handleFormSubmission(event: FormSubmissionEvent): Promise<void> {
+    // 1. Create lead in MongoDB
     const lead = await this.leadCreationService.createFromFormSubmission({
-      clientId: client.clientId,
-      formId: dto.formId,
-      fields: dto.fields,
-      metadata: {
-        page: dto.page,
-        sessionId: dto.sessionId,
-        visitorId: dto.visitorId,
-      },
+      clientId: event.clientId,
+      formId: event.payload.formId,
+      fields: event.payload.fields,
+      sessionId: event.sessionId,
+      visitorId: event.visitorId,
+      metadata: event.metadata,
     });
 
-    // 2. Store event
-    await this.eventsRepository.save({
-      eventId: dto.id,
-      clientId: client.clientId,
-      formId: dto.formId,
+    // 2. Store event in MongoDB with lead reference
+    await this.eventModel.create({
+      eventId: event.id,
+      clientId: event.clientId,
+      formId: event.payload.formId,
       leadId: lead.leadId,
       eventType: 'form_submission',
-      sessionId: dto.sessionId,
-      visitorId: dto.visitorId,
-      payload: dto,
-      metadata: dto.page,
-      timestamp: new Date(dto.timestamp || Date.now()),
+      sessionId: event.sessionId,
+      visitorId: event.visitorId,
+      payload: event.payload,
+      metadata: event.metadata,
+      timestamp: new Date(event.timestamp),
+      createdAt: new Date(),
     });
 
-    // 3. Trigger CRM sync (async)
-    this.crmSyncQueue.add('sync-lead', { leadId: lead.leadId });
+    // 3. Trigger CRM sync (async via queue)
+    await this.queueService.add('crm-sync', { 
+      leadId: lead.leadId,
+      clientId: event.clientId 
+    });
 
-    return { success: true };
+    // 4. Update session with form submission flag
+    await this.sessionModel.updateOne(
+      { sessionId: event.sessionId },
+      { 
+        $inc: { formSubmissions: 1, eventCount: 1 },
+        $set: { endedAt: new Date() }
+      }
+    );
   }
 
-  private async handleFormInteraction(
-    client: Client,
-    dto: FormInteractionDto,
-  ): Promise<{ success: boolean }> {
-    // Only create lead if email is present
-    const hasEmail = dto.fieldName === 'email' || dto.fields?.email;
+  /**
+   * Handle form interaction - Store event, create partial lead if email present
+   */
+  private async handleFormInteraction(event: FormInteractionEvent): Promise<void> {
+    const hasEmail = event.payload.fields?.email || event.payload.fieldName === 'email';
     
-    if (!hasEmail) {
-      // Store interaction but don't create lead
+    // Store event in MongoDB
+    await this.eventModel.create({
+      eventId: event.id,
+      clientId: event.clientId,
+      formId: event.payload.formId,
+      eventType: 'form_interaction',
+      sessionId: event.sessionId,
+      visitorId: event.visitorId,
+      payload: event.payload,
+      metadata: event.metadata,
+      timestamp: new Date(event.timestamp),
+      createdAt: new Date(),
+    });
+
+    // Create partial lead if email is present
+    if (hasEmail) {
+      await this.leadCreationService.createFromFormInteraction({
+        clientId: event.clientId,
+        formId: event.payload.formId,
+        fields: event.payload.fields,
+        sessionId: event.sessionId,
+        visitorId: event.visitorId,
+        metadata: event.metadata,
+      });
+    }
+  }
+
+  /**
+   * Handle page view - Update session
+   */
+  private async handlePageView(event: PageViewEvent): Promise<void> {
+    // Store event
+    await this.eventModel.create({
+      eventId: event.id,
+      clientId: event.clientId,
+      eventType: 'page_view',
+      sessionId: event.sessionId,
+      visitorId: event.visitorId,
+      payload: event.payload,
+      metadata: event.metadata,
+      timestamp: new Date(event.timestamp),
+      createdAt: new Date(),
+    });
+
+    // Update session with page view
+    await this.sessionModel.updateOne(
+      { sessionId: event.sessionId },
+      { 
+        $push: { 
+          pageViews: {
+            url: event.payload.url,
+            title: event.payload.title,
+            timestamp: new Date(event.timestamp)
+          }
+        },
+        $inc: { eventCount: 1 },
+        $set: { 
+          endedAt: new Date(),
+          updatedAt: new Date()
+        }
+      },
+      { upsert: false }
+    });
+  }
+
+  /**
+   * Handle generic event - Just store
+   */
+  private async handleGenericEvent(event: GenericEvent): Promise<void> {
+    await this.eventModel.create({
+      eventId: event.id,
+      clientId: event.clientId,
+      eventType: event.type,
+      sessionId: event.sessionId,
+      visitorId: event.visitorId,
+      payload: event.payload,
+      metadata: event.metadata,
+      timestamp: new Date(event.timestamp),
+      createdAt: new Date(),
+    });
+  }
+}
+```
+
+**Performance Characteristics**:
+
+- **Batch API**: Client sends up to 50 events per request
+- **Async Processing**: Events queued immediately, processed by workers
+- **MongoDB Writes**: Bulk inserts for high throughput (10k+ events/sec)
+- **MariaDB Reads**: Cached client config lookups (Redis)
+- **Session Updates**: Atomic operations with $inc and $push
+- **TTL Indexes**: Events expire after 90 days automatically
       await this.eventsRepository.save({
         eventId: generateUUID(),
         clientId: client.clientId,
@@ -603,193 +1056,471 @@ export class TrackingService {
 }
 ```
 
-### 3.4 Lead Creation Service
+### 3.4 Lead Creation Service (MongoDB)
+
+The Lead Creation Service manages lead documents in MongoDB, handling both complete form submissions and partial leads from form interactions.
 
 ```typescript
 // lead-creation.service.ts
 @Injectable()
 export class LeadCreationService {
   constructor(
-    @InjectRepository(Lead)
-    private leadsRepository: Repository<Lead>,
+    @InjectModel('Lead') private leadModel: Model<LeadDocument>,
+    @InjectModel('Event') private eventModel: Model<EventDocument>,
+    private clientConfigService: ClientConfigService,
   ) {}
 
+  /**
+   * Create lead from complete form submission
+   * High-quality lead with all required fields
+   */
   async createFromFormSubmission(data: CreateLeadDto): Promise<Lead> {
-    const lead = this.leadsRepository.create({
+    // Check for duplicate lead (same email, client, within 24h)
+    const existingLead = await this.findExistingLead({
+      clientId: data.clientId,
+      email: data.fields.email,
+      timeWindow: 24 * 60 * 60 * 1000, // 24 hours
+    });
+
+    if (existingLead) {
+      // Update existing lead instead of creating duplicate
+      return this.updateLead(existingLead.leadId, {
+        ...data.fields,
+        status: 'submitted',
+        quality: 'high',
+        submittedAt: new Date(),
+        lastInteractionAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+
+    // Create new lead document in MongoDB
+    const lead = await this.leadModel.create({
+      leadId: generateUUID(),
       clientId: data.clientId,
       formId: data.formId,
+      
+      // Lead fields
       email: data.fields.email,
       name: data.fields.name || data.fields.full_name,
-      firstName: data.fields.first_name,
-      lastName: data.fields.last_name,
+      firstName: data.fields.first_name || this.extractFirstName(data.fields.name),
+      lastName: data.fields.last_name || this.extractLastName(data.fields.name),
       phone: data.fields.phone,
       company: data.fields.company,
       message: data.fields.message,
-      status: LeadStatus.SUBMITTED,
-      quality: LeadQuality.HIGH,
+      
+      // Lead metadata
+      status: 'submitted',
+      quality: 'high',
       source: 'form_submission',
-      sessionId: data.metadata.sessionId,
-      visitorId: data.metadata.visitorId,
-      metadata: data.metadata,
+      
+      // Tracking
+      sessionId: data.sessionId,
+      visitorId: data.visitorId,
+      
+      // Enrichment
+      utmSource: data.metadata.utmSource,
+      utmMedium: data.metadata.utmMedium,
+      utmCampaign: data.metadata.utmCampaign,
+      referrer: data.metadata.referrer,
+      landingPage: data.metadata.landingPage,
+      
+      // CRM sync status
+      crmSynced: false,
+      crmSyncedAt: null,
+      crmId: null,
+      crmErrors: [],
+      
+      // Timestamps
       submittedAt: new Date(),
       lastInteractionAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
 
-    return this.leadsRepository.save(lead);
+    return lead;
   }
 
+  /**
+   * Create partial lead from form interaction
+   * Medium-quality lead with incomplete data
+   */
   async createFromFormInteraction(data: CreateLeadDto): Promise<Lead> {
-    const lead = this.leadsRepository.create({
+    const email = data.fields.email;
+    
+    if (!email) {
+      throw new BadRequestException('Email required for lead creation');
+    }
+
+    // Check for existing lead to update
+    const existingLead = await this.findExistingLead({
+      clientId: data.clientId,
+      email,
+      timeWindow: 7 * 24 * 60 * 60 * 1000, // 7 days for partial leads
+    });
+
+    if (existingLead) {
+      // Merge new fields into existing lead
+      return this.updateLead(existingLead.leadId, {
+        ...data.fields,
+        lastInteractionAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+
+    // Create new partial lead
+    const lead = await this.leadModel.create({
+      leadId: generateUUID(),
       clientId: data.clientId,
       formId: data.formId,
+      
+      // Partial lead fields (may be incomplete)
       email: data.fields.email,
       name: data.fields.name,
       firstName: data.fields.first_name,
       lastName: data.fields.last_name,
       phone: data.fields.phone,
       company: data.fields.company,
-      status: LeadStatus.PARTIAL,
-      quality: LeadQuality.MEDIUM,
+      
+      // Lead metadata
+      status: 'partial',
+      quality: 'medium',
       source: 'form_interaction',
-      sessionId: data.metadata.sessionId,
-      visitorId: data.metadata.visitorId,
-      metadata: data.metadata,
+      
+      // Tracking
+      sessionId: data.sessionId,
+      visitorId: data.visitorId,
+      
+      // Enrichment
+      utmSource: data.metadata.utmSource,
+      utmMedium: data.metadata.utmMedium,
+      utmCampaign: data.metadata.utmCampaign,
+      referrer: data.metadata.referrer,
+      landingPage: data.metadata.landingPage,
+      
+      // CRM sync status
+      crmSynced: false,
+      crmSyncedAt: null,
+      crmId: null,
+      crmErrors: [],
+      
+      // Timestamps
       lastInteractionAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
 
-    return this.leadsRepository.save(lead);
+    return lead;
   }
 
+  /**
+   * Find existing lead to prevent duplicates
+   */
   async findExistingLead(criteria: {
     clientId: string;
     email: string;
-    visitorId: string;
+    timeWindow: number; // milliseconds
   }): Promise<Lead | null> {
-    return this.leadsRepository.findOne({
-      where: {
-        clientId: criteria.clientId,
-        email: criteria.email,
-        visitorId: criteria.visitorId,
-        createdAt: MoreThan(new Date(Date.now() - 24 * 60 * 60 * 1000)), // Last 24h
-      },
-    });
+    const cutoffDate = new Date(Date.now() - criteria.timeWindow);
+    
+    return this.leadModel.findOne({
+      clientId: criteria.clientId,
+      email: criteria.email,
+      createdAt: { $gte: cutoffDate },
+    }).exec();
   }
 
+  /**
+   * Update existing lead with new data
+   */
   async updateLead(
     leadId: string,
     updates: Partial<Lead>,
   ): Promise<Lead> {
-    await this.leadsRepository.update(leadId, updates);
-    return this.leadsRepository.findOne({ where: { leadId } });
+    return this.leadModel.findOneAndUpdate(
+      { leadId },
+      { 
+        $set: {
+          ...updates,
+          updatedAt: new Date()
+        }
+      },
+      { new: true } // Return updated document
+    ).exec();
+  }
+
+  /**
+   * Get lead by ID
+   */
+  async findOne(leadId: string): Promise<Lead> {
+    return this.leadModel.findOne({ leadId }).exec();
+  }
+
+  /**
+   * Get leads for client with pagination
+   */
+  async findByClient(
+    clientId: string,
+    options: { skip?: number; limit?: number; status?: string }
+  ): Promise<{ leads: Lead[]; total: number }> {
+    const query: any = { clientId };
+    
+    if (options.status) {
+      query.status = options.status;
+    }
+
+    const [leads, total] = await Promise.all([
+      this.leadModel
+        .find(query)
+        .sort({ createdAt: -1 })
+        .skip(options.skip || 0)
+        .limit(options.limit || 50)
+        .exec(),
+      this.leadModel.countDocuments(query).exec(),
+    ]);
+
+    return { leads, total };
+  }
+
+  /**
+   * Extract first name from full name
+   */
+  private extractFirstName(fullName: string): string {
+    return fullName?.split(' ')[0] || '';
+  }
+
+  /**
+   * Extract last name from full name
+   */
+  private extractLastName(fullName: string): string {
+    const parts = fullName?.split(' ') || [];
+    return parts.length > 1 ? parts.slice(1).join(' ') : '';
   }
 }
 ```
+
+**Lead Deduplication Strategy**:
+
+- **Form Submissions**: Check for duplicates within 24 hours (same email + client)
+- **Form Interactions**: Check for duplicates within 7 days (longer window for partial leads)
+- **Update vs Create**: If duplicate found, merge new data instead of creating new lead
+- **Email as Key**: Email is the primary deduplication field
+
+**Lead Quality Scoring**:
+
+- **High**: Complete form submission with all required fields
+- **Medium**: Partial lead from form interaction with email
+- **Low**: Chat inquiry or minimal information (future enhancement)
 
 ---
 
 ## 4. Data Flow
 
-### 4.1 Script Loading Flow
+### 4.1 Bootloader Script Loading Flow (Dynamic Config Pattern)
 
 ```
-1. Website loads: <script src="/script/abc-123.js">
+1. Website loads with embed snippet:
+   <script>
+     window.WebsiteTrackerConfig = { apiKey: 'xxx', apiUrl: 'https://api...' };
+     // Load main script
+   </script>
         ↓
-2. API: GET /script/abc-123.js
+2. Browser requests main tracker script:
+   GET /main-app.v1.js
         ↓
-3. ScriptController.getScript(clientId)
-        ↓
-4. ScriptService.generateScript(clientId)
-        ↓
-5. Query DB: SELECT * FROM clients WHERE client_id = 'abc-123'
-             SELECT * FROM forms WHERE client_id = 'abc-123'
-             SELECT * FROM fields WHERE form_id IN (...)
-        ↓
-6. Read base script: public/production-tracker.js
-        ↓
-7. Replace placeholders:
-   - {{CLIENT_ID}} → 'abc-123'
-   - {{API_KEY}} → 'sk_live_abc123'
-   - {{WIDGETS_CONFIG}} → JSON config
-        ↓
-8. Return script with headers:
+3. AssetsController serves static file (CDN-cached)
    - Content-Type: application/javascript
-   - Cache-Control: public, max-age=3600
-   - ETag: hash(clientId + version)
+   - Cache-Control: public, max-age=31536000 (1 year)
+   - ETag: version-hash
         ↓
-9. Browser executes script → Tracker initializes
+4. main-app.v1.js executes:
+   - Reads window.WebsiteTrackerConfig (apiKey, apiUrl)
+   - Fetches dynamic config: GET /v1/config/:apiKey
+        ↓
+5. ClientConfigController.getConfig(apiKey)
+        ↓
+6. Query MariaDB (cached with Redis):
+   SELECT * FROM clients WHERE api_key = 'xxx'
+   SELECT * FROM forms WHERE client_id = 'abc-123'
+   SELECT * FROM fields WHERE form_id IN (...)
+        ↓
+7. Return JSON config:
+   {
+     "clientId": "abc-123",
+     "domain": "example.com",
+     "forms": [...],
+     "features": { "formTracking": true, "chat": false },
+     "theme": { "primaryColor": "#007bff" }
+   }
+        ↓
+8. Tracker initializes with config:
+   - Set up form listeners
+   - Initialize session tracking
+   - Configure event batching
+   - Start sending events to POST /v1/track/events
 ```
 
-### 4.2 Form Submission Flow
+**Key Benefits**:
+- Main script is fully cacheable (static file)
+- Config changes take effect immediately (no script regeneration)
+- Reduced server load (no per-client script generation)
+- Better CDN utilization
+
+### 4.2 Form Submission Flow (Batch Processing with MongoDB)
 
 ```
-User submits form
+User submits form on client website
         ↓
-Tracker intercepts submit event
+Tracker intercepts submit event (preventDefault)
         ↓
-Extract form data + redact sensitive fields
+Extract form data:
+  - Field names & values
+  - Form ID from data-attributes
+  - Redact sensitive fields (password, credit card)
         ↓
-Batch event (or send immediately if beforeunload)
-        ↓
-POST /v1/track
+Add to event queue (batch):
 {
+  "id": "evt_123",
   "type": "form_submission",
-  "formId": "form_001",
-  "fields": { "email": "...", "name": "..." }
+  "timestamp": 1698765432000,
+  "payload": {
+    "formId": "form_001",
+    "fields": { "email": "user@example.com", "name": "John" }
+  }
 }
         ↓
-TrackingController.trackEvent(dto)
+Queue flushes (50 events or 5 seconds):
+POST /v1/track/events
+{
+  "apiKey": "sk_live_xxx",
+  "events": [ {...}, {...}, ... ]
+}
         ↓
-Validate API key
+TrackingController.queueEvents(dto)
         ↓
-TrackingService.handleFormSubmission(client, dto)
+Validate API key (MariaDB query, Redis-cached)
         ↓
-LeadCreationService.createFromFormSubmission(data)
+Add events to processing queue (RabbitMQ/SQS):
+  - Returns 200 OK immediately
+  - Events processed asynchronously
         ↓
-INSERT INTO leads (...) RETURNING lead_id
+Queue Worker picks up event:
+TrackingService.processEvent(event)
         ↓
-INSERT INTO events (lead_id, ...)
+Route to handler:
+TrackingService.handleFormSubmission(event)
         ↓
-Queue CRM sync job (async)
+1. Create lead in MongoDB:
+   LeadCreationService.createFromFormSubmission({
+     clientId, formId, fields, sessionId, visitorId
+   })
         ↓
-Return { success: true }
+2. Store event in MongoDB:
+   db.events.insertOne({
+     eventId, clientId, formId, leadId, eventType: 'form_submission',
+     payload, timestamp, createdAt
+   })
         ↓
-Tracker receives response → Logs success
+3. Update session in MongoDB:
+   db.sessions.updateOne(
+     { sessionId },
+     { $inc: { formSubmissions: 1 }, $set: { endedAt: now } }
+   )
+        ↓
+4. Queue CRM sync job:
+   queueService.add('crm-sync', { leadId, clientId })
+        ↓
+5. Processing complete (async, no waiting)
+        ↓
+Client receives immediate response: { success: true, queued: 3 }
 ```
 
-### 4.3 Partial Lead Capture Flow
+**Database Operations**:
+- **MariaDB**: Client config lookup (cached with Redis, 1-2ms)
+- **MongoDB**: Event insert (bulk write, 5-10ms per batch)
+- **MongoDB**: Lead upsert with deduplication (10-15ms)
+- **MongoDB**: Session update (atomic operation, 5ms)
+
+**Performance Characteristics**:
+- API response time: < 100ms (queue + return)
+- Event processing time: 50-200ms per event (async)
+- Throughput: 10,000+ events/sec with horizontal scaling
+- Batch size: Up to 50 events per request
+
+### 4.3 Partial Lead Capture Flow (MongoDB)
 
 ```
-User fills email field
+User fills email field on form
         ↓
-Blur event fires
+Blur event fires on email input
         ↓
-Tracker captures field value
-        ↓
-POST /v1/track
+Tracker captures field value:
 {
   "type": "form_interaction",
   "trigger": "blur",
-  "fieldName": "email",
-  "fieldValue": "user@example.com"
+  "payload": {
+    "formId": "form_001",
+    "fieldName": "email",
+    "fields": { "email": "user@example.com" }
+  }
 }
         ↓
-TrackingService.handleFormInteraction(client, dto)
+Event added to batch queue
+        ↓
+Batch sent: POST /v1/track/events
+        ↓
+Queue worker processes event:
+TrackingService.handleFormInteraction(event)
         ↓
 Check: Has email? ✅ Yes
         ↓
-LeadCreationService.findExistingLead({ email, visitorId })
+LeadCreationService.findExistingLead({
+  clientId, email, timeWindow: 7 days
+})
         ↓
-If exists → Update lead
-If not exists → Create partial lead (status: 'partial', quality: 'medium')
+If exists:
+  → Update MongoDB lead:
+    db.leads.updateOne(
+      { leadId },
+      { $set: { ...newFields, lastInteractionAt: now, updatedAt: now } }
+    )
         ↓
-INSERT INTO events (...)
+If not exists:
+  → Create partial lead in MongoDB:
+    db.leads.insertOne({
+      leadId, clientId, formId,
+      email: "user@example.com",
+      status: "partial",
+      quality: "medium",
+      source: "form_interaction",
+      sessionId, visitorId,
+      createdAt: now
+    })
         ↓
-Return { success: true }
+Store interaction event:
+db.events.insertOne({
+  eventId, clientId, formId,
+  eventType: "form_interaction",
+  payload: { fieldName: "email", fieldValue: "..." },
+  timestamp, createdAt
+})
         ↓
-User closes tab (beforeunload)
+User continues filling form (name, phone)
+  → Each field triggers updates to same lead document
         ↓
-Tracker sends all in-progress fields via sendBeacon
+User closes tab (beforeunload event)
+        ↓
+Tracker sends final batch via sendBeacon:
+  - All pending field values
+  - Session end event
+  - Page view events
 ```
+
+**Partial Lead Strategy**:
+- **Deduplication Window**: 7 days (longer than complete submissions)
+- **Update Pattern**: Merge new fields into existing lead document
+- **Quality Score**: Starts at "medium", upgraded to "high" on submission
+- **CRM Sync**: Only synced after complete submission or significant interaction
 
 ---
 
@@ -823,30 +1554,54 @@ GET    /v1/fields/:fieldId/mapping    // Get mapping
 PUT    /v1/mappings/:mappingId        // Update mapping
 DELETE /v1/mappings/:mappingId        // Delete mapping
 
-// Event Tracking
-POST   /v1/track                      // Track event (public)
-GET    /v1/events                     // List events (authenticated)
+// Event Tracking (Public - API Key Auth)
+POST   /v1/track/events               // Batch event tracking (apiKey in body)
+GET    /v1/config/:apiKey             // Get client config (public, cached)
 
-// Lead Management
-GET    /v1/leads                      // List leads
+// Lead Management (Authenticated - JWT)
+GET    /v1/leads                      // List leads (with filters)
 GET    /v1/leads/:leadId              // Get lead details
 PUT    /v1/leads/:leadId              // Update lead
 DELETE /v1/leads/:leadId              // Delete lead
+POST   /v1/leads/:leadId/sync         // Trigger manual CRM sync
 
-// Script Generation
-GET    /script/:clientId.js           // Get tracking script (public, cached)
+// Script Embedding (Public - No Auth)
+GET    /script/:clientId.js           // Get loader script (cacheable)
+GET    /script/:clientId/embed        // Get embed snippet HTML
+GET    /main-app.:version.js          // Get main tracker script (static, CDN-cached)
+
+// Demo & Testing (Public - No Auth)
+GET    /demo                          // Interactive demo page
+GET    /example                       // Example implementation
+GET    /config-test                   // Config testing tool
 ```
 
 ### 5.2 API Authentication
 
-**Public Endpoints** (no auth):
-- `GET /script/:clientId.js`
+**Public Endpoints** (no authentication required):
+- `GET /script/:clientId.js` - Loader script generation
+- `GET /script/:clientId/embed` - Embed snippet HTML
+- `GET /main-app.v1.js` - Main tracker script (static)
+- `GET /demo`, `/example`, `/config-test` - Testing tools
+- `GET /v1/config/:apiKey` - Client configuration (apiKey validation only)
 
-**API Key Auth** (X-API-Key header):
-- `POST /v1/track`
+**API Key Auth** (apiKey in request body):
+- `POST /v1/track/events` - Batch event tracking
+  - Validates apiKey against MariaDB clients table
+  - Cached in Redis for performance
 
 **JWT Auth** (Authorization: Bearer token):
 - All client/form/field/lead management endpoints
+- Dashboard and analytics endpoints
+- CRM integration configuration
+
+**Rate Limiting by API Key**:
+```typescript
+// Per API key limits
+- Event tracking: 10,000 events/minute
+- Config endpoint: 1,000 requests/minute (cached)
+- Management APIs: 100 requests/minute
+```
 
 ### 5.3 Rate Limiting
 
@@ -875,41 +1630,94 @@ export class RateLimiterGuard implements CanActivate {
 
 ---
 
-## 6. Client-Side SDK
+## 6. Client-Side SDK (Bootloader Pattern)
 
-### 6.1 Architecture
+### 6.1 Architecture Overview
+
+The client-side tracker uses a **two-stage loading pattern** with dynamic configuration:
+
+**Stage 1: Loader Script** (embedded in page)
+- Minimal code that sets up config and loads main script
+- Inlined in page HTML for instant execution
+- No external dependencies
+
+**Stage 2: Main Tracker Script** (main-app.v1.js)
+- Full tracking implementation
+- Fetches dynamic config from server
+- Cached globally by CDN
+
+### 6.2 Implementation Structure
 
 ```javascript
-// production-tracker.js structure
+// main-app.v1.js structure
 
 (function() {
   'use strict';
 
   // ========================================
-  // 1. CONFIGURATION
+  // 1. CONFIGURATION BOOTSTRAP
   // ========================================
-  const CONFIG = {
-    clientId: '{{CLIENT_ID}}',
-    serverUrl: '{{SERVER_URL}}',
-    apiKey: '{{API_KEY}}',
-    widgets: '{{WIDGETS_CONFIG}}',
-  };
+  const config = window.WebsiteTrackerConfig; // Set by loader script
+  let serverConfig = null; // Fetched from /v1/config/:apiKey
+
+  // Fetch dynamic configuration
+  async function fetchConfig(apiKey, apiUrl) {
+    const response = await fetch(`${apiUrl}/v1/config/${apiKey}`);
+    return await response.json();
+  }
 
   // ========================================
   // 2. UTILITIES
   // ========================================
   const Utils = {
-    log: function(...args) { /* ... */ },
-    generateUUID: function() { /* ... */ },
-    debounce: function(func, wait) { /* ... */ },
+    log: function(...args) {
+      if (serverConfig?.debug) console.log('[WebsiteTracker]', ...args);
+    },
+    generateUUID: function() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      });
+    },
+    debounce: function(func, wait) {
+      let timeout;
+      return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+      };
+    },
   };
 
   // ========================================
   // 3. SESSION MANAGEMENT
   // ========================================
   const Session = {
-    getSessionId: function() { /* ... */ },
-    getVisitorId: function() { /* ... */ },
+    sessionId: null,
+    visitorId: null,
+    
+    init: function() {
+      this.visitorId = this.getOrCreateVisitorId();
+      this.sessionId = this.getOrCreateSessionId();
+      Utils.log('Session initialized:', { sessionId: this.sessionId, visitorId: this.visitorId });
+    },
+    
+    getOrCreateVisitorId: function() {
+      let id = localStorage.getItem('ws_visitor_id');
+      if (!id) {
+        id = Utils.generateUUID();
+        localStorage.setItem('ws_visitor_id', id);
+      }
+      return id;
+    },
+    
+    getOrCreateSessionId: function() {
+      let id = sessionStorage.getItem('ws_session_id');
+      if (!id) {
+        id = Utils.generateUUID();
+        sessionStorage.setItem('ws_session_id', id);
+      }
+      return id;
+    },
   };
 
   // ========================================
@@ -917,10 +1725,34 @@ export class RateLimiterGuard implements CanActivate {
   // ========================================
   const EventQueue = {
     queue: [],
-    batchSize: 10,
+    maxBatchSize: 50,
     flushInterval: 5000,
-    add: function(event) { /* ... */ },
-    flush: function() { /* ... */ },
+    flushTimer: null,
+    
+    add: function(event) {
+      this.queue.push({
+        id: Utils.generateUUID(),
+        timestamp: Date.now(),
+        sessionId: Session.sessionId,
+        visitorId: Session.visitorId,
+        ...event,
+      });
+      
+      if (this.queue.length >= this.maxBatchSize) {
+        this.flush();
+      }
+    },
+    
+    flush: function() {
+      if (this.queue.length === 0) return;
+      
+      const events = this.queue.splice(0, this.maxBatchSize);
+      API.sendBatch(config.apiKey, config.apiUrl, events);
+    },
+    
+    startAutoFlush: function() {
+      this.flushTimer = setInterval(() => this.flush(), this.flushInterval);
+    },
   };
 
   // ========================================
@@ -928,65 +1760,142 @@ export class RateLimiterGuard implements CanActivate {
   // ========================================
   const FormTracker = {
     trackedForms: new Map(),
-    sensitiveFields: ['password', 'ssn', 'credit_card', 'cvv'],
+    sensitiveFields: ['password', 'ssn', 'credit_card', 'cvv', 'card-number'],
     
-    init: function() {
+    init: function(apiKey, apiUrl) {
+      this.apiKey = apiKey;
+      this.apiUrl = apiUrl;
       this.attachFormListeners();
       this.attachFieldListeners();
       this.attachBeforeUnload();
+      Utils.log('FormTracker initialized');
     },
     
-    attachFormListeners: function() { /* ... */ },
-    attachFieldListeners: function() { /* ... */ },
-    handleFormSubmit: function(form, event) { /* ... */ },
-    handleFieldBlur: function(field, event) { /* ... */ },
-    handleBeforeUnload: function() { /* ... */ },
-    redactSensitiveFields: function(data) { /* ... */ },
-  };
-
-  // ========================================
-  // 6. CHAT WIDGET (Optional)
-  // ========================================
-  const ChatWidget = {
-    init: function() { /* ... */ },
-    open: function() { /* ... */ },
-    close: function() { /* ... */ },
-    sendMessage: function(message) { /* ... */ },
-  };
-
-  // ========================================
-  // 7. API CLIENT
-  // ========================================
-  const API = {
-    trackEvent: function(eventData) {
-      return fetch(`${CONFIG.serverUrl}/v1/track`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': CONFIG.apiKey,
-        },
-        body: JSON.stringify(eventData),
+    attachFormListeners: function() {
+      document.querySelectorAll('form').forEach(form => {
+        form.addEventListener('submit', (e) => this.handleFormSubmit(form, e));
       });
     },
+    
+    attachFieldListeners: function() {
+      const inputs = document.querySelectorAll('input, textarea, select');
+      inputs.forEach(input => {
+        if (input.type === 'email' || input.name?.toLowerCase().includes('email')) {
+          input.addEventListener('blur', Utils.debounce(() => {
+            this.handleFieldBlur(input, this.apiKey, this.apiUrl);
+          }, 500));
+        }
+      });
+    },
+    
+    handleFormSubmit: function(form, event) {
+      const formData = this.extractFormData(form);
+      const redactedData = this.redactSensitiveFields(formData);
+      
+      EventQueue.add({
+        type: 'form_submission',
+        payload: {
+          formId: form.id || form.dataset.trackingId || 'unknown',
+          fields: redactedData,
+          url: window.location.href,
+        },
+      });
+      
+      // Flush immediately on submit
+      EventQueue.flush();
+    },
+    
+    handleFieldBlur: function(field, apiKey, apiUrl) {
+      if (field.value && field.type === 'email') {
+        EventQueue.add({
+          type: 'form_interaction',
+          payload: {
+            formId: field.form?.id || 'unknown',
+            fieldName: field.name || field.id,
+            fields: { email: field.value },
+            trigger: 'blur',
+          },
+        });
+      }
+    },
+    
+    handleBeforeUnload: function() {
+      window.addEventListener('beforeunload', () => {
+        if (EventQueue.queue.length > 0) {
+          const events = EventQueue.queue.splice(0);
+          navigator.sendBeacon(
+            `${this.apiUrl}/v1/track/events`,
+            JSON.stringify({ apiKey: this.apiKey, events })
+          );
+        }
+      });
+    },
+    
+    extractFormData: function(form) {
+      const data = {};
+      new FormData(form).forEach((value, key) => {
+        data[key] = value;
+      });
+      return data;
+    },
+    
+    redactSensitiveFields: function(data) {
+      const redacted = { ...data };
+      this.sensitiveFields.forEach(field => {
+        if (redacted[field]) redacted[field] = '[REDACTED]';
+      });
+      return redacted;
+    },
   };
 
   // ========================================
-  // 8. INITIALIZATION
+  // 6. API CLIENT
   // ========================================
-  function init() {
+  const API = {
+    sendBatch: async function(apiKey, apiUrl, events) {
+      try {
+        const response = await fetch(`${apiUrl}/v1/track/events`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey, events }),
+        });
+        
+        if (!response.ok) {
+          Utils.log('Failed to send events:', response.status);
+        }
+      } catch (error) {
+        Utils.log('Error sending events:', error);
+      }
+    },
+  };
+
+  // ========================================
+  // 7. INITIALIZATION
+  // ========================================
+  async function init() {
+    // 1. Fetch server configuration
+    serverConfig = await fetchConfig(config.apiKey, config.apiUrl);
+    Utils.log('Config loaded:', serverConfig);
+    
+    // 2. Initialize session tracking
     Session.init();
-    FormTracker.init();
-    if (CONFIG.widgets.chat.enabled) {
-      ChatWidget.init();
+    
+    // 3. Initialize form tracking (if enabled)
+    if (serverConfig.features?.formTracking) {
+      FormTracker.init(config.apiKey, config.apiUrl);
     }
+    
+    // 4. Start batch flushing
     EventQueue.startAutoFlush();
     
-    // Track initialization
+    // 5. Track initialization event
     EventQueue.add({
       type: 'tracker_initialized',
-      clientId: CONFIG.clientId,
-      version: '2.0.0',
-      timestamp: new Date().toISOString(),
+      payload: {
+        version: '1.0.0',
+        url: window.location.href,
+        referrer: document.referrer,
+      },
     });
   }
 
@@ -1296,149 +2205,342 @@ async gdprDelete(leadId: string): Promise<void> {
 
 ## 9. Performance Optimization
 
-### 9.1 Script Loading
+### 9.1 Script Loading (Bootloader Pattern)
 
-**CDN Caching**:
+**CDN Caching for Main Script**:
 ```typescript
-// script.controller.ts
-@Get('/script/:clientId.js')
+// embedding.controller.ts - AssetsController
+@Get('/main-app.:version.js')
 @Header('Content-Type', 'application/javascript')
-@Header('Cache-Control', 'public, max-age=3600') // 1 hour
+@Header('Cache-Control', 'public, max-age=31536000, immutable') // 1 year - immutable
 @Header('X-Content-Type-Options', 'nosniff')
-async getScript(
-  @Param('clientId') clientId: string,
-  @Res() res: Response,
-) {
-  const script = await this.scriptService.generateScript(clientId);
-  const etag = this.generateETag(clientId);
+async getMainScript(@Param('version') version: string, @Res() res: Response) {
+  const script = await fs.readFile(`./public/main-app.${version}.js`, 'utf-8');
+  const etag = createHash('md5').update(script).digest('hex');
   
   res.setHeader('ETag', etag);
   res.send(script);
 }
 ```
 
-**Script Minification**:
-```javascript
-// webpack.config.js
-module.exports = {
-  entry: './src/tracker/production-tracker.js',
-  output: {
-    filename: 'production-tracker.min.js',
-    path: path.resolve(__dirname, 'dist/public'),
-  },
-  optimization: {
-    minimize: true,
-    minimizer: [
-      new TerserPlugin({
-        terserOptions: {
-          compress: {
-            drop_console: true, // Remove console.log in production
-          },
-        },
-      }),
-    ],
-  },
-};
-```
-
-### 9.2 Database Optimization
-
-**Indexes**:
-```sql
--- Critical indexes for performance
-CREATE INDEX CONCURRENTLY idx_leads_client_created 
-  ON leads(client_id, created_at DESC);
-
-CREATE INDEX CONCURRENTLY idx_events_visitor_timestamp 
-  ON events(visitor_id, timestamp DESC);
-
--- Partial index for active leads only
-CREATE INDEX CONCURRENTLY idx_leads_active 
-  ON leads(client_id, status) 
-  WHERE crm_synced_at IS NULL;
-```
-
-**Query Optimization**:
+**Config Endpoint Caching**:
 ```typescript
-// Use connection pooling
-{
-  type: 'postgres',
-  host: process.env.DB_HOST,
-  port: 5432,
-  username: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  database: process.env.DB_NAME,
-  extra: {
-    max: 20,          // Max connections
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
-  },
+// client-config.controller.ts
+@Get('/v1/config/:apiKey')
+@Header('Cache-Control', 'public, max-age=300') // 5 minutes
+@UseInterceptors(CacheInterceptor) // Redis cache
+async getConfig(@Param('apiKey') apiKey: string) {
+  // Cached lookup - typical response time: 1-2ms
+  return this.clientConfigService.getConfigByApiKey(apiKey);
 }
 ```
 
-### 9.3 Event Batching
+**Script Minification & Compression**:
+- Terser for JavaScript minification
+- Gzip/Brotli compression at CDN level
+- Target: <30KB gzipped for main script
 
-- Batch size: 10 events
+### 9.2 Database Optimization (Hybrid Architecture)
+
+**MariaDB Optimization** (Configuration Data - Read-Heavy):
+
+```sql
+-- MariaDB indexes for fast lookups
+CREATE INDEX idx_clients_api_key ON clients(api_key);
+CREATE INDEX idx_clients_domain ON clients(domain);
+CREATE INDEX idx_forms_client ON forms(client_id, is_active);
+CREATE INDEX idx_fields_form ON fields(form_id);
+CREATE INDEX idx_field_mappings_field ON field_mappings(field_id);
+
+-- Query cache configuration
+SET GLOBAL query_cache_type = 1;
+SET GLOBAL query_cache_size = 268435456; -- 256MB
+SET GLOBAL query_cache_limit = 1048576; -- 1MB max result
+
+-- Connection pooling
+[mysqld]
+max_connections = 200
+max_connect_errors = 10000
+wait_timeout = 28800
+```
+
+**Redis Caching Layer**:
+```typescript
+// Cache client configs for 5 minutes
+@Injectable()
+export class ClientConfigService {
+  constructor(
+    @InjectRepository(Client) private clientRepo: Repository<Client>,
+    @Inject('REDIS') private redis: Redis,
+  ) {}
+
+  async getConfigByApiKey(apiKey: string): Promise<ClientConfig> {
+    // Check cache first
+    const cacheKey = `config:${apiKey}`;
+    const cached = await this.redis.get(cacheKey);
+    
+    if (cached) {
+      return JSON.parse(cached);
+    }
+    
+    // Query MariaDB
+    const config = await this.clientRepo.findOne({
+      where: { apiKey, isActive: true },
+      relations: ['forms', 'forms.fields', 'forms.fields.mapping'],
+    });
+    
+    // Cache for 5 minutes
+    await this.redis.setex(cacheKey, 300, JSON.stringify(config));
+    
+    return config;
+  }
+}
+```
+
+**MongoDB Optimization** (Events/Leads - Write-Heavy):
+
+```javascript
+// MongoDB indexes for high-throughput writes
+db.events.createIndex({ clientId: 1, timestamp: -1 });
+db.events.createIndex({ sessionId: 1 });
+db.events.createIndex({ visitorId: 1 });
+db.events.createIndex({ eventType: 1, timestamp: -1 });
+db.events.createIndex({ createdAt: 1 }, { expireAfterSeconds: 7776000 }); // 90-day TTL
+
+db.leads.createIndex({ clientId: 1, createdAt: -1 });
+db.leads.createIndex({ email: 1 });
+db.leads.createIndex({ status: 1, crmSynced: 1 });
+
+db.sessions.createIndex({ sessionId: 1 }, { unique: true });
+db.sessions.createIndex({ clientId: 1, startedAt: -1 });
+
+// Write concern for performance
+db.adminCommand({
+  setDefaultRWConcern: 1,
+  defaultWriteConcern: { w: 1, j: false } // Faster writes, ack without journal
+});
+
+// Connection pooling
+mongoose.connect(mongoUri, {
+  maxPoolSize: 50,
+  minPoolSize: 10,
+  socketTimeoutMS: 45000,
+  serverSelectionTimeoutMS: 5000,
+});
+```
+
+**Bulk Write Operations**:
+```typescript
+// Batch insert events for better performance
+await this.eventModel.insertMany(events, {
+  ordered: false, // Continue on error
+  writeConcern: { w: 1 },
+});
+```
+
+### 9.3 Event Batching & Queue Management
+
+**Client-Side Batching**:
+- Max batch size: 50 events
 - Flush interval: 5 seconds
-- Use `sendBeacon` for reliability on page unload
-- Fallback to `fetch` with `keepalive: true`
+- Immediate flush on form_submission events
+- `sendBeacon` for beforeunload events
+
+**Server-Side Queue**:
+```typescript
+// RabbitMQ/SQS configuration
+const queueConfig = {
+  prefetch: 100, // Process up to 100 events concurrently
+  maxRetries: 3,
+  retryDelay: 5000, // 5 seconds
+  deadLetterQueue: 'event-processing-dlq',
+};
+
+// Worker scaling based on queue depth
+// 1 worker per 1000 events in queue
+// Max 20 workers per instance
+```
+
+### 9.4 Performance Targets
+
+**Response Times**:
+- API event ingestion: < 100ms (p95)
+- Config endpoint: < 50ms (p95, cached)
+- Event processing: < 200ms per event (async)
+
+**Throughput**:
+- 10,000+ events/second with 3 API servers
+- 50,000+ concurrent sessions
+- 1M+ events/day per client (typical)
+
+**Database Performance**:
+- MariaDB: < 10ms for config lookups (cached)
+- MongoDB: < 50ms for event inserts (bulk)
+- MongoDB: < 100ms for lead upserts
 
 ---
 
 ## 10. Deployment Architecture
 
-### 10.1 Infrastructure Diagram
+### 10.1 Infrastructure Diagram (Hybrid Database Architecture)
 
 ```
-                     ┌─────────────────────┐
-                     │   CloudFlare CDN    │
-                     │  (Static Scripts)   │
-                     └──────────┬──────────┘
-                                │
-                                │
-                     ┌──────────▼──────────┐
-                     │   Load Balancer     │
-                     └──────────┬──────────┘
-                                │
-                ┌───────────────┼───────────────┐
-                │               │               │
-     ┌──────────▼──────┐ ┌─────▼──────┐ ┌─────▼──────┐
-     │  API Server 1   │ │ API Server 2│ │ API Server 3│
-     │   (NestJS)      │ │  (NestJS)   │ │  (NestJS)   │
-     └──────────┬──────┘ └─────┬──────┘ └─────┬──────┘
-                │               │               │
-                └───────────────┼───────────────┘
-                                │
-                     ┌──────────▼──────────┐
-                     │   PostgreSQL RDS    │
-                     │   (Primary + Replica)│
-                     └─────────────────────┘
-                                │
-                     ┌──────────▼──────────┐
-                     │   Redis (Optional)  │
-                     │  (Rate Limiting)    │
-                     └─────────────────────┘
+                          ┌─────────────────────┐
+                          │   CloudFlare CDN    │
+                          │  main-app.v1.js     │
+                          │  (1-year cache)     │
+                          └──────────┬──────────┘
+                                     │
+                          ┌──────────▼──────────┐
+                          │   Load Balancer     │
+                          │   (ALB/NLB)         │
+                          └──────────┬──────────┘
+                                     │
+                 ┌───────────────────┼───────────────────┐
+                 │                   │                   │
+      ┌──────────▼──────┐ ┌─────────▼────────┐ ┌───────▼────────┐
+      │  API Server 1   │ │   API Server 2   │ │  API Server 3  │
+      │    (NestJS)     │ │     (NestJS)     │ │    (NestJS)    │
+      │  - Tracking     │ │   - Tracking     │ │  - Tracking    │
+      │  - Embedding    │ │   - Embedding    │ │  - Embedding   │
+      └────┬────────┬───┘ └────┬────────┬────┘ └───┬────────┬───┘
+           │        │          │        │          │        │
+           │        └──────────┼────────┘──────────┘        │
+           │                   │                             │
+           │                   │                             │
+    ┌──────▼──────────┐ ┌──────▼─────────────┐    ┌────────▼────────┐
+    │   MariaDB 10.11 │ │   MongoDB 6.0+     │    │  Redis Cluster  │
+    │   (Primary)     │ │   (Replica Set)    │    │  - Config Cache │
+    │   - Clients     │ │   - Events         │    │  - Rate Limits  │
+    │   - Forms       │ │   - Leads          │    │  - Sessions     │
+    │   - Fields      │ │   - Sessions       │    └─────────────────┘
+    │   - Mappings    │ │   (Write-Heavy)    │
+    └────┬────────────┘ └────────────────────┘
+         │                        │
+    ┌────▼────────────┐  ┌────────▼───────────────┐
+    │  MariaDB Read   │  │  MongoDB Secondaries   │
+    │  Replicas (2)   │  │  (Read Scaling)        │
+    │  (Analytics)    │  └────────────────────────┘
+    └─────────────────┘
+
+                 ┌───────────────────────────┐
+                 │   Message Queue           │
+                 │   (RabbitMQ/AWS SQS)      │
+                 │   - Event Processing      │
+                 │   - CRM Sync              │
+                 └───────────┬───────────────┘
+                             │
+                 ┌───────────▼───────────────┐
+                 │   Worker Nodes (2-10)     │
+                 │   - Event Processing      │
+                 │   - Lead Creation         │
+                 │   - CRM Sync              │
+                 └───────────────────────────┘
 ```
 
 ### 10.2 Scaling Strategy
 
 **Horizontal Scaling**:
-- Stateless API servers (scale with load balancer)
-- Database read replicas for analytics queries
-- Redis for distributed rate limiting
+
+*API Servers*:
+- Stateless NestJS instances behind load balancer
+- Auto-scaling based on CPU/memory (target: 70% utilization)
+- Min: 2 instances, Max: 10 instances
+- Each instance: 2 CPU, 4GB RAM
+
+*MongoDB*:
+- Replica set with 3 members (1 primary, 2 secondaries)
+- Shard by clientId for >100M documents
+- Each node: 4 CPU, 16GB RAM, SSD storage
+
+*Workers*:
+- Queue-based workers for async processing
+- Scale based on queue depth (1 worker per 1000 messages)
+- Min: 2 workers, Max: 20 workers
 
 **Vertical Scaling**:
-- Database: Start with db.t3.medium, scale to db.r5.large
-- API servers: t3.medium → t3.large → t3.xlarge
 
-### 10.3 Monitoring & Observability
+*MariaDB*:
+- Start: db.t3.medium (2 vCPU, 4GB RAM)
+- Growth: db.t3.large (2 vCPU, 8GB RAM)
+- Scale: db.r6g.xlarge (4 vCPU, 32GB RAM)
+- Read replicas: 2 for analytics queries
 
-**Metrics to Track**:
-- API latency (p50, p95, p99)
-- Script load time
+*MongoDB*:
+- Start: 4GB RAM, 2 CPU, 100GB SSD per node
+- Growth: 16GB RAM, 4 CPU, 500GB SSD
+- Scale: 32GB RAM, 8 CPU, 1TB SSD
+
+*Redis*:
+- Start: cache.t3.micro (0.5GB RAM)
+- Growth: cache.t3.medium (3.2GB RAM)
+- Scale: cache.r6g.large (13.07GB RAM)
+
+### 10.3 High Availability & Disaster Recovery
+
+**Database Backups**:
+
+*MariaDB*:
+- Automated daily backups (7-day retention)
+- Point-in-time recovery (PITR) enabled
+- Cross-region backup replication
+
+*MongoDB*:
+- Continuous backup with point-in-time recovery
+- Snapshot every 6 hours
+- 30-day retention policy
+- Cross-region backup storage
+
+**Failover Strategy**:
+- MariaDB: Auto-failover to read replica (<30 seconds)
+- MongoDB: Automatic primary election (<10 seconds)
+- Redis: Multi-AZ with automatic failover
+
+### 10.4 Monitoring & Observability
+
+**Application Metrics** (Prometheus + Grafana):
+- API latency (p50, p95, p99, p99.9)
+- Request rate (requests/second)
+- Error rate (5xx errors)
 - Event throughput (events/second)
-- Database query performance
-- Error rates
+- Queue depth (messages waiting)
+
+**Database Metrics**:
+- MariaDB: Query latency, connection pool, cache hit rate
+- MongoDB: Write latency, replication lag, oplog size
+- Redis: Memory usage, cache hit rate, evictions
+
+**Alerting Thresholds**:
+- API p95 latency > 500ms
+- Error rate > 1%
+- MariaDB connections > 80%
+- MongoDB replication lag > 10 seconds
+- Queue depth > 10,000 messages
+
+**Logging** (ELK/CloudWatch):
+- Structured JSON logs
+- Request/response logging with trace IDs
+- Error tracking with stack traces
+- Event processing audit trail
+
+### 10.5 Cost Optimization
+
+**Infrastructure Costs** (Estimated Monthly):
+- API Servers (3x t3.medium): $75
+- MariaDB (db.t3.medium + 2 replicas): $150
+- MongoDB Atlas (M30 replica set): $300
+- Redis (cache.t3.medium): $50
+- Load Balancer: $20
+- CloudFront CDN: $10-50 (based on traffic)
+- SQS/RabbitMQ: $20-100
+- **Total: ~$625-775/month** (small-medium scale)
+
+**Optimization Strategies**:
+- Use reserved instances for steady-state workload (save 40%)
+- Implement TTL indexes to auto-delete old events (save storage)
+- CDN caching reduces origin requests by 90%+
+- Connection pooling reduces database load
+- Event batching reduces API calls by 50x
 - Lead creation rate
 - CRM sync lag
 

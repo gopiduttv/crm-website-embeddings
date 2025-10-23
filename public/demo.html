@@ -3,204 +3,332 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YourCRM Demo - Form Tracking Test</title>
+  <title>YourCRM - Demo Page</title>
   <style>
     body {
-      font-family: Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
       max-width: 800px;
-      margin: 50px auto;
-      padding: 20px;
+      margin: 0 auto;
+      padding: 40px 20px;
       background: #f5f5f5;
     }
-    
-    .container {
-      background: white;
-      padding: 30px;
-      border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
     }
-    
-    h1 {
+    .header h1 {
       color: #333;
       margin-bottom: 10px;
     }
-    
-    .description {
+    .header p {
       color: #666;
-      margin-bottom: 30px;
-      padding: 15px;
-      background: #e8f4f8;
-      border-left: 4px solid #0066cc;
+      font-size: 14px;
     }
-    
-    form {
-      display: flex;
-      flex-direction: column;
-      gap: 15px;
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 30px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    
-    .form-group {
-      display: flex;
-      flex-direction: column;
-    }
-    
-    label {
-      font-weight: bold;
-      margin-bottom: 5px;
+    .card h2 {
+      margin-top: 0;
       color: #333;
+      font-size: 20px;
+      border-bottom: 2px solid #3A86FF;
+      padding-bottom: 10px;
     }
-    
-    input, textarea {
-      padding: 10px;
-      border: 1px solid #ddd;
+    .form-group {
+      margin-bottom: 20px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      color: #555;
+      font-weight: 500;
+    }
+    .form-group input,
+    .form-group textarea {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #ddd;
       border-radius: 4px;
       font-size: 14px;
+      font-family: inherit;
+      box-sizing: border-box;
+      transition: border-color 0.3s;
     }
-    
-    input:focus, textarea:focus {
+    .form-group input:focus,
+    .form-group textarea:focus {
       outline: none;
-      border-color: #0066cc;
+      border-color: #3A86FF;
     }
-    
+    .form-group textarea {
+      resize: vertical;
+      min-height: 100px;
+    }
     button {
-      background: #0066cc;
+      background: #3A86FF;
       color: white;
-      padding: 12px 24px;
       border: none;
+      padding: 12px 24px;
       border-radius: 4px;
-      font-size: 16px;
+      font-size: 14px;
+      font-weight: 500;
       cursor: pointer;
-      font-weight: bold;
+      transition: background 0.3s;
     }
-    
     button:hover {
-      background: #0052a3;
+      background: #2a76ef;
     }
-    
-    .info {
-      margin-top: 30px;
-      padding: 15px;
-      background: #fff3cd;
-      border-left: 4px solid #ffc107;
+    .log-container {
+      background: #1e1e1e;
+      border-radius: 8px;
+      padding: 20px;
+      margin-top: 20px;
+    }
+    .log-header {
+      color: #3A86FF;
+      font-weight: bold;
+      margin-bottom: 10px;
       font-size: 14px;
     }
-    
-    .tracked-form {
-      border: 2px solid #28a745;
+    .log {
+      background: #000;
+      color: #0f0;
+      padding: 15px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      max-height: 400px;
+      overflow-y: auto;
+      border-radius: 4px;
+      line-height: 1.6;
     }
-    
-    code {
-      background: #f4f4f4;
+    .info-box {
+      background: #e3f2fd;
+      border-left: 4px solid #3A86FF;
+      padding: 15px;
+      margin-bottom: 20px;
+      border-radius: 4px;
+    }
+    .info-box code {
+      background: #fff;
       padding: 2px 6px;
       border-radius: 3px;
       font-family: 'Courier New', monospace;
+      color: #d63384;
+    }
+    .success {
+      color: #00ff00;
+    }
+    .error {
+      color: #ff4444;
+    }
+    .warning {
+      color: #ffaa00;
     }
   </style>
-  
-  <!-- YourCRM Tracking Script -->
-  <script src="http://localhost:5000/script/abc-123.js" async defer></script>
 </head>
 <body>
-  <div class="container">
-    <h1>🎯 YourCRM Form Tracking Demo</h1>
-    
-    <div class="description">
-      <strong>What's being tracked:</strong>
-      <ul>
-        <li>✅ Page views (automatic)</li>
-        <li>✅ Form submissions (automatic)</li>
-        <li>✅ Chat widget (visible in bottom-right)</li>
-        <li>🔒 Sensitive fields are automatically redacted (e.g., password)</li>
-      </ul>
-    </div>
-    
-    <h2>Contact Form</h2>
-    <form id="contact-form" class="tracked-form">
+  <div class="header">
+    <h1>🚀 YourCRM Demo</h1>
+    <p>Bootloader Pattern Implementation</p>
+  </div>
+
+  <div class="info-box">
+    <strong>📋 Integration Method:</strong> This page uses the <strong>single-line bootloader pattern</strong>.<br>
+    <code>&lt;script src="http://localhost:5000/script/test-client.js" async defer&gt;&lt;/script&gt;</code><br>
+    <small style="color: #666; margin-top: 8px; display: block;">
+      ✅ No manual configuration needed<br>
+      ✅ Configuration embedded in server-generated script<br>
+      ✅ Zero API calls on page load (config pre-loaded)<br>
+      ✅ <strong>Batch Capture Mode</strong>: All fields sent together (3s debounce)
+    </small>
+  </div>
+
+  <div class="card">
+    <h2>📝 Contact Form</h2>
+    <form id="contact-form" name="contact-form">
       <div class="form-group">
-        <label for="name">Full Name *</label>
-        <input type="text" id="name" name="name" required placeholder="John Doe">
+        <label for="email">Email Address *</label>
+        <input 
+          type="email" 
+          id="email" 
+          name="email" 
+          placeholder="your.email@example.com"
+          required
+        >
       </div>
       
       <div class="form-group">
-        <label for="email">Email Address *</label>
-        <input type="email" id="email" name="email" required placeholder="john@example.com">
+        <label for="name">Full Name *</label>
+        <input 
+          type="text" 
+          id="name" 
+          name="name" 
+          placeholder="John Doe"
+          required
+        >
       </div>
       
       <div class="form-group">
         <label for="phone">Phone Number</label>
-        <input type="tel" id="phone" name="phone" placeholder="+1-555-0123">
+        <input 
+          type="tel" 
+          id="phone" 
+          name="phone" 
+          placeholder="+1 (555) 123-4567"
+        >
       </div>
       
       <div class="form-group">
         <label for="company">Company</label>
-        <input type="text" id="company" name="company" placeholder="Acme Inc.">
-      </div>
-      
-      <div class="form-group">
-        <label for="password">Password (Will be redacted) *</label>
-        <input type="password" id="password" name="password" required placeholder="Enter password">
+        <input 
+          type="text" 
+          id="company" 
+          name="company" 
+          placeholder="Acme Corp"
+        >
       </div>
       
       <div class="form-group">
         <label for="message">Message *</label>
-        <textarea id="message" name="message" rows="4" required placeholder="Tell us about your needs..."></textarea>
-      </div>
-      
-      <div class="form-group">
-        <label>
-          <input type="checkbox" name="newsletter" value="yes">
-          Subscribe to newsletter
-        </label>
+        <textarea 
+          id="message" 
+          name="message" 
+          placeholder="Tell us how we can help..."
+          required
+        ></textarea>
       </div>
       
       <button type="submit">Submit Form</button>
     </form>
-    
-    <div class="info">
-      <strong>📊 Open your browser's developer console to see tracking in action!</strong>
-      <br><br>
-      When you submit this form:
-      <ol>
-        <li>The form data will be captured automatically</li>
-        <li>The <code>password</code> field will be redacted to <code>[REDACTED]</code></li>
-        <li>A POST request will be sent to <code>/v1/track</code></li>
-        <li>You'll see console logs from the YourCRM tracking script</li>
-      </ol>
-      <br>
-      <strong>💡 Tip:</strong> Check your terminal where the NestJS server is running to see the backend logs!
-    </div>
-    
-    <h2>Newsletter Form (Also Tracked)</h2>
-    <form id="newsletter-form">
-      <div class="form-group">
-        <label for="newsletter-email">Email Address</label>
-        <input type="email" id="newsletter-email" name="email" required placeholder="your@email.com">
-      </div>
-      
-      <button type="submit">Subscribe</button>
-    </form>
   </div>
-  
+
+  <div class="card">
+    <h2>🧪 Test Actions</h2>
+    <button onclick="testManualTracking()">Test Manual Event Tracking</button>
+    <button onclick="showConfig()">Show Loaded Config</button>
+    <button onclick="location.reload()">Reload Page</button>
+  </div>
+
+  <div class="log-container">
+    <div class="log-header">📊 Event Log</div>
+    <div class="log" id="log"></div>
+  </div>
+
   <script>
-    // Prevent actual form submission for demo purposes
-    document.querySelectorAll('form').forEach(form => {
-      form.addEventListener('submit', function(e) {
-        e.preventDefault();
-        alert('✅ Form submitted! Check the console and terminal for tracking data.');
-        
-        // Reset form after "submission"
-        setTimeout(() => {
-          this.reset();
-        }, 500);
-      });
+    // Logging utility
+    function log(msg, type = 'info') {
+      const div = document.getElementById('log');
+      const time = new Date().toLocaleTimeString();
+      let className = '';
+      let icon = '📝';
+      
+      if (type === 'success') {
+        className = 'success';
+        icon = '✅';
+      } else if (type === 'error') {
+        className = 'error';
+        icon = '❌';
+      } else if (type === 'warning') {
+        className = 'warning';
+        icon = '⚠️';
+      }
+      
+      div.innerHTML += `<span class="${className}">[${time}] ${icon} ${msg}</span>\n`;
+      div.scrollTop = div.scrollHeight;
+      console.log(`[${time}] ${msg}`);
+    }
+
+    // Test manual tracking
+    function testManualTracking() {
+      log('Testing manual event tracking...', 'info');
+      if (window.YourCRM) {
+        window.YourCRM('track', {
+          event: 'button_click',
+          properties: {
+            buttonName: 'Test Manual Tracking',
+            timestamp: new Date().toISOString()
+          }
+        });
+        log('Manual event tracked', 'success');
+      } else {
+        log('YourCRM not loaded yet', 'error');
+      }
+    }
+
+    // Show loaded configuration
+    function showConfig() {
+      log('Current YourCRM Configuration:', 'info');
+      if (window.YourCRM && window.YourCRM.config) {
+        log(JSON.stringify(window.YourCRM.config, null, 2), 'success');
+      } else {
+        log('Config not loaded yet', 'warning');
+      }
+    }
+
+    // Form submission handler
+    document.getElementById('contact-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      log('Form submitted (prevented default)', 'success');
+      log('YourCRM will track this automatically', 'info');
+      
+      // Simulate form success
+      setTimeout(() => {
+        alert('Form submitted successfully! Check the event log.');
+        this.reset();
+      }, 500);
     });
+
+    // Track page load
+    log('🌐 Demo page loaded', 'success');
+    log('Waiting for YourCRM bootloader...', 'info');
     
-    // Log when YourCRM is ready
+    // Check if YourCRM loads
     setTimeout(() => {
       if (window.YourCRM) {
-        console.log('%c✅ YourCRM is loaded and ready!', 'color: green; font-weight: bold; font-size: 14px;');
+        log('YourCRM loaded successfully', 'success');
+        if (window.YourCRM.config) {
+          log('Configuration embedded and loaded', 'success');
+          log(`Client ID: ${window.YourCRM.config.clientId}`, 'info');
+          log(`Forms enabled: ${window.YourCRM.config.widgets?.forms?.enabled}`, 'info');
+          log(`Track interactions: ${window.YourCRM.config.widgets?.forms?.trackInteractions}`, 'info');
+          
+          // Show batch capture config
+          const batchConfig = window.YourCRM.config.widgets?.forms?.batchCapture;
+          if (batchConfig?.enabled) {
+            log('🔥 Batch Capture: ENABLED', 'success');
+            log(`   Debounce: ${batchConfig.debounceMs}ms`, 'info');
+            log(`   Capture on tab switch: ${batchConfig.captureOnVisibilityChange}`, 'info');
+            log(`   Capture on page close: ${batchConfig.captureOnBeforeUnload}`, 'info');
+          } else {
+            log('Batch Capture: disabled (legacy mode)', 'warning');
+          }
+        }
+      } else {
+        log('YourCRM not loaded - check bootloader script', 'error');
       }
-    }, 1000);
+    }, 2000);
+
+    // Instructions
+    log('📋 Try these actions:', 'info');
+    log('1. Fill multiple fields (email, name, etc.)', 'info');
+    log('2. Wait 3 seconds → batch event sent with ALL fields', 'info');
+    log('3. Or switch tabs → instant batch capture', 'info');
+    log('4. Or submit form → form submission tracking', 'info');
+    log('💡 Batch mode = 1 event instead of 5+ events!', 'success');
   </script>
+
+  <!-- 
+    ============================================
+    YourCRM Bootloader Integration
+    ============================================
+    This is the ONLY script tag needed!
+    The server generates this script with embedded configuration.
+    No manual initialization required.
+  -->
+  <script src="http://localhost:5000/script/test-client.js" async defer></script>
+
 </body>
 </html>
